@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HashCalculator - Abhishek Limaye</title>
+    <link rel="stylesheet" href="../style.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        .tool-container {
+            max-width: 800px;
+            margin: 100px auto;
+            padding: 2rem;
+            border: 1px solid #333;
+        }
+        .tool-header h1 {
+            margin: 0;
+            font-size: 2rem;
+        }
+        .tool-content {
+            margin-top: 2rem;
+        }
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+        }
+        textarea, select {
+            width: 100%;
+            padding: 0.8rem;
+            background: #111;
+            border: 1px solid #444;
+            color: #fff;
+            font-family: inherit;
+        }
+        .result-box {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #1a1a1a;
+            border-left: 4px solid #fff;
+            word-break: break-all;
+            min-height: 50px;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 2rem;
+            color: #aaa;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #fff;
+        }
+        .btn-tool {
+            padding: 0.8rem 1.5rem;
+            background: #fff;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="name">ABHISHEK LIMAYE</div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Home</a></li>
+                    <li><a href="../index.html#about">About</a></li>
+                    <li><a href="../index.html#toolkit">Toolkit</a></li>
+                    <li><a href="../index.html#projects">Projects</a></li>
+                    <li><a href="../index.html#contact">Contact</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="tool-container">
+            <a href="../index.html#toolkit" class="back-link">&larr; Back to Toolkit</a>
+            <div class="tool-header">
+                <h1>HashCalculator</h1>
+                <p>Generate cryptographic hashes locally in your browser.</p>
+            </div>
+            <hr style="border:0; border-top:1px solid #333; margin: 2rem 0;">
+            <div class="tool-content">
+                <div class="input-group">
+                    <label for="hash-input">Input Text</label>
+                    <textarea id="hash-input" rows="4" placeholder="Enter text to hash..."></textarea>
+                </div>
+                <div class="input-group">
+                    <label for="hash-algo">Algorithm</label>
+                    <select id="hash-algo">
+                        <option value="SHA-256">SHA-256</option>
+                        <option value="SHA-384">SHA-384</option>
+                        <option value="SHA-512">SHA-512</option>
+                        <option value="SHA-1">SHA-1 (Legacy)</option>
+                    </select>
+                </div>
+                <button class="btn-tool" onclick="calculateHash()">Generate Hash</button>
+                
+                <div class="result-box" id="hash-result">
+                    Result will appear here...
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        async function calculateHash() {
+            const text = document.getElementById('hash-input').value;
+            const algo = document.getElementById('hash-algo').value;
+            const resultBox = document.getElementById('hash-result');
+
+            if (!text) {
+                resultBox.innerText = "Please enter some text.";
+                return;
+            }
+
+            try {
+                const msgUint8 = new TextEncoder().encode(text);
+                const hashBuffer = await crypto.subtle.digest(algo, msgUint8);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                resultBox.innerText = hashHex;
+            } catch (e) {
+                resultBox.innerText = "Error calculating hash: " + e.message;
+            }
+        }
+    </script>
+</body>
+</html>

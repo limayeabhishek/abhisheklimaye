@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSINT Search - Abhishek Limaye</title>
+    <link rel="stylesheet" href="../style.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        .tool-container {
+            max-width: 800px;
+            margin: 100px auto;
+            padding: 2rem;
+            border: 1px solid #333;
+        }
+        .tool-header h1 {
+            margin: 0;
+            font-size: 2rem;
+        }
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+        }
+        input {
+            width: 100%;
+            padding: 0.8rem;
+            background: #111;
+            border: 1px solid #444;
+            color: #fff;
+            font-family: inherit;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 2rem;
+            color: #aaa;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #fff;
+        }
+        .btn-tool {
+            padding: 0.8rem 1.5rem;
+            background: #fff;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 1rem;
+            margin-bottom: 1rem;
+        }
+        .links-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .osint-link {
+            padding: 1rem;
+            border: 1px solid #444;
+            text-align: center;
+            text-decoration: none;
+            color: #fff;
+            transition: all 0.3s;
+        }
+        .osint-link:hover {
+            border-color: #fff;
+            background: #111;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="name">ABHISHEK LIMAYE</div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Home</a></li>
+                    <li><a href="../index.html#about">About</a></li>
+                    <li><a href="../index.html#toolkit">Toolkit</a></li>
+                    <li><a href="../index.html#projects">Projects</a></li>
+                    <li><a href="../index.html#contact">Contact</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="tool-container">
+            <a href="../index.html#toolkit" class="back-link">&larr; Back to Toolkit</a>
+            <div class="tool-header">
+                <h1>OSINT Search Aggregator</h1>
+                <p>Quickly search for details across common OSINT platforms.</p>
+            </div>
+            <hr style="border:0; border-top:1px solid #333; margin: 2rem 0;">
+            <div class="tool-content">
+                <div class="input-group">
+                    <label for="osint-input">Target Email, Username, or Domain</label>
+                    <input type="text" id="osint-input" placeholder="e.g., example@email.com or @username">
+                </div>
+                
+                <p style="color:#aaa; margin-bottom: 1rem;">Select a platform to search:</p>
+                <div class="links-grid">
+                    <a href="#" class="osint-link" onclick="searchOSINT('google')">Google Search</a>
+                    <a href="#" class="osint-link" onclick="searchOSINT('haveibeenpwned')">Have I Been Pwned</a>
+                    <a href="#" class="osint-link" onclick="searchOSINT('hunter')">Hunter.io</a>
+                    <a href="#" class="osint-link" onclick="searchOSINT('intelx')">IntelX</a>
+                    <a href="#" class="osint-link" onclick="searchOSINT('shodan')">Shodan</a>
+                    <a href="#" class="osint-link" onclick="searchOSINT('virustotal')">VirusTotal</a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function searchOSINT(platform) {
+            const query = document.getElementById('osint-input').value;
+            if (!query) {
+                alert("Please enter a target first.");
+                return;
+            }
+
+            let url = "";
+            switch(platform) {
+                case 'google': url = `https://www.google.com/search?q="${query}"`; break;
+                case 'haveibeenpwned': url = `https://haveibeenpwned.com/account/${query}`; break;
+                case 'hunter': url = `https://hunter.io/try/email-finder/${query}`; break;
+                case 'intelx': url = `https://intelx.io/?s=${query}`; break;
+                case 'shodan': url = `https://www.shodan.io/search?query=${query}`; break;
+                case 'virustotal': url = `https://www.virustotal.com/gui/search/${query}`; break;
+            }
+
+            if (url) window.open(url, '_blank');
+        }
+    </script>
+</body>
+</html>

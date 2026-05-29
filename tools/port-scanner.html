@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Port Scanner Simulator - Abhishek Limaye</title>
+    <link rel="stylesheet" href="../style.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        .tool-container {
+            max-width: 800px;
+            margin: 100px auto;
+            padding: 2rem;
+            border: 1px solid #333;
+        }
+        .tool-header h1 {
+            margin: 0;
+            font-size: 2rem;
+        }
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+        }
+        input {
+            width: 100%;
+            padding: 0.8rem;
+            background: #111;
+            border: 1px solid #444;
+            color: #fff;
+            font-family: inherit;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 2rem;
+            color: #aaa;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #fff;
+        }
+        .btn-tool {
+            padding: 0.8rem 1.5rem;
+            background: #fff;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .scan-terminal {
+            margin-top: 2rem;
+            padding: 1.5rem;
+            background: #000;
+            border: 1px solid #333;
+            height: 300px;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            color: #0f0; /* Matrix green */
+        }
+        .scan-line {
+            margin-bottom: 0.5rem;
+            opacity: 0;
+            animation: fadeIn 0.3s forwards;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .port-open { color: #0f0; }
+        .port-closed { color: #f00; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="name">ABHISHEK LIMAYE</div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Home</a></li>
+                    <li><a href="../index.html#about">About</a></li>
+                    <li><a href="../index.html#toolkit">Toolkit</a></li>
+                    <li><a href="../index.html#projects">Projects</a></li>
+                    <li><a href="../index.html#contact">Contact</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="tool-container">
+            <a href="../index.html#toolkit" class="back-link">&larr; Back to Toolkit</a>
+            <div class="tool-header">
+                <h1>Port Scanner Simulator</h1>
+                <p>Simulate a port scan on a target IP or domain.</p>
+            </div>
+            <hr style="border:0; border-top:1px solid #333; margin: 2rem 0;">
+            <div class="tool-content">
+                <div class="input-group">
+                    <label for="target-input">Target (IP or Domain)</label>
+                    <input type="text" id="target-input" placeholder="e.g., 192.168.1.1 or example.com">
+                </div>
+                <button class="btn-tool" id="scan-btn" onclick="startScan()">Start Simulation</button>
+                
+                <div class="scan-terminal" id="terminal">
+                    Waiting for target input...
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const commonPorts = [
+            {port: 21, service: 'FTP'},
+            {port: 22, service: 'SSH'},
+            {port: 23, service: 'Telnet'},
+            {port: 25, service: 'SMTP'},
+            {port: 53, service: 'DNS'},
+            {port: 80, service: 'HTTP'},
+            {port: 443, service: 'HTTPS'},
+            {port: 3306, service: 'MySQL'},
+            {port: 8080, service: 'HTTP-Proxy'}
+        ];
+
+        function startScan() {
+            const target = document.getElementById('target-input').value;
+            const terminal = document.getElementById('terminal');
+            const btn = document.getElementById('scan-btn');
+
+            if (!target) {
+                alert("Please enter a target.");
+                return;
+            }
+
+            btn.disabled = true;
+            terminal.innerHTML = `<div class="scan-line">Initializing scan for target: ${target}...</div>`;
+            
+            let i = 0;
+            const interval = setInterval(() => {
+                if (i < commonPorts.length) {
+                    const p = commonPorts[i];
+                    const isOpen = Math.random() > 0.7; // Simulate open/closed
+                    const statusClass = isOpen ? 'port-open' : 'port-closed';
+                    const statusText = isOpen ? 'OPEN' : 'CLOSED';
+                    
+                    terminal.innerHTML += `<div class="scan-line">Scanning Port ${p.port} (${p.service})... <span class="${statusClass}">${statusText}</span></div>`;
+                    terminal.scrollTop = terminal.scrollHeight;
+                    i++;
+                } else {
+                    terminal.innerHTML += `<div class="scan-line" style="color:#fff; margin-top:1rem;">Scan complete. [Simulation Only]</div>`;
+                    terminal.scrollTop = terminal.scrollHeight;
+                    clearInterval(interval);
+                    btn.disabled = false;
+                }
+            }, 400);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PassCheck - Abhishek Limaye</title>
+    <link rel="stylesheet" href="../style.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        .tool-container {
+            max-width: 800px;
+            margin: 100px auto;
+            padding: 2rem;
+            border: 1px solid #333;
+        }
+        .tool-header h1 {
+            margin: 0;
+            font-size: 2rem;
+        }
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+        }
+        input {
+            width: 100%;
+            padding: 0.8rem;
+            background: #111;
+            border: 1px solid #444;
+            color: #fff;
+            font-family: inherit;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 2rem;
+            color: #aaa;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #fff;
+        }
+        .strength-meter {
+            height: 10px;
+            background: #222;
+            margin-top: 1rem;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .strength-bar {
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s, background-color 0.3s;
+        }
+        .feedback {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: #ccc;
+        }
+        .weak { background-color: #f00; }
+        .fair { background-color: #ff0; }
+        .good { background-color: #0f0; }
+        .strong { background-color: #00f; }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="name">ABHISHEK LIMAYE</div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Home</a></li>
+                    <li><a href="../index.html#about">About</a></li>
+                    <li><a href="../index.html#toolkit">Toolkit</a></li>
+                    <li><a href="../index.html#projects">Projects</a></li>
+                    <li><a href="../index.html#contact">Contact</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="tool-container">
+            <a href="../index.html#toolkit" class="back-link">&larr; Back to Toolkit</a>
+            <div class="tool-header">
+                <h1>PassCheck</h1>
+                <p>Evaluate the strength of your passwords locally.</p>
+            </div>
+            <hr style="border:0; border-top:1px solid #333; margin: 2rem 0;">
+            <div class="tool-content">
+                <div class="input-group">
+                    <label for="pass-input">Enter Password</label>
+                    <input type="password" id="pass-input" oninput="checkPass()" placeholder="Type password here...">
+                </div>
+                
+                <div class="strength-meter">
+                    <div id="strength-bar" class="strength-bar"></div>
+                </div>
+                
+                <div id="feedback" class="feedback">
+                    Enter a password to see its strength evaluation.
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function checkPass() {
+            const pass = document.getElementById('pass-input').value;
+            const bar = document.getElementById('strength-bar');
+            const feedback = document.getElementById('feedback');
+            
+            let strength = 0;
+            if (pass.length > 8) strength += 25;
+            if (pass.match(/[a-z]/) && pass.match(/[A-Z]/)) strength += 25;
+            if (pass.match(/\d/)) strength += 25;
+            if (pass.match(/[^a-zA-Z\d]/)) strength += 25;
+
+            bar.style.width = strength + '%';
+            bar.className = 'strength-bar';
+            
+            if (strength <= 25) {
+                bar.classList.add('weak');
+                feedback.innerHTML = "Strength: Weak. Use more characters and symbols.";
+            } else if (strength <= 50) {
+                bar.classList.add('fair');
+                feedback.innerHTML = "Strength: Fair. Add numbers and mix case.";
+            } else if (strength <= 75) {
+                bar.classList.add('good');
+                feedback.innerHTML = "Strength: Good. Almost there!";
+            } else {
+                bar.classList.add('strong');
+                feedback.innerHTML = "Strength: Strong. This is a secure password.";
+            }
+
+            if (!pass) {
+                bar.style.width = '0%';
+                feedback.innerHTML = "Enter a password to see its strength evaluation.";
+            }
+        }
+    </script>
+</body>
+</html>
