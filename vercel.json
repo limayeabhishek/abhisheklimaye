@@ -1,6 +1,13 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/Abhishek__Limaye.pdf",
+      "destination": "/Abhishek%20Limaye.pdf",
+      "permanent": true
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
