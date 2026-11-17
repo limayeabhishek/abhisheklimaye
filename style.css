@@ -24,6 +24,47 @@ header {
     padding: 1rem 2rem;
 }
 
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.brand-name {
+    font-size: 1.2rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    color: #fff;
+    text-decoration: none;
+    letter-spacing: 0.5px;
+}
+
+.brand-name:hover {
+    color: #ccc;
+}
+
+.brand-sep {
+    color: #444;
+    font-size: 0.85rem;
+}
+
+.brand-autron {
+    font-size: 0.82rem;
+    color: #fff;
+    text-decoration: none;
+    letter-spacing: 0.8px;
+    border: 1px solid #444;
+    padding: 3px 8px;
+    background: #0d0d0d;
+    transition: all 0.2s;
+}
+
+.brand-autron:hover {
+    border-color: #ff3344;
+    color: #ff3344;
+    background: #180808;
+}
+
 .name {
     font-size: 1.2rem;
     font-weight: bold;

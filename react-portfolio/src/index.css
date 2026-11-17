@@ -330,36 +330,75 @@ a {
   50% { opacity: 0.4; transform: scale(0.85); }
 }
 
-.btn-ultron-glow {
-  border-color: #ff1a1a !important;
-  color: #ff3344 !important;
-  box-shadow: 0 0 10px rgba(255, 26, 26, 0.15);
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.btn-ultron-glow:hover {
-  background-color: #ff1a1a !important;
+.brand-name {
+  font-size: 1.2rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 0.5px;
+}
+
+.brand-name:hover {
+  color: #ccc;
+}
+
+.brand-sep {
+  color: #444;
+  font-size: 0.85rem;
+}
+
+.brand-autron {
+  font-size: 0.82rem;
+  color: #fff;
+  text-decoration: none;
+  letter-spacing: 0.8px;
+  border: 1px solid #444;
+  padding: 3px 8px;
+  background: #0d0d0d;
+  transition: all 0.2s;
+}
+
+.brand-autron:hover {
+  border-color: #ff3344;
+  color: #ff3344;
+  background: #180808;
+}
+
+.btn-autron {
+  border-color: #ff3344 !important;
+  color: #ff3344 !important;
+}
+
+.btn-autron:hover {
+  background-color: #ff3344 !important;
   color: #000000 !important;
-  box-shadow: 0 0 15px rgba(255, 26, 26, 0.4);
 }
 
 /* ==========================================================================
-   PART 1: ULTRON AI ASSISTANT INTERFACE
+   PART 1: A-ULTRON ASSISTANT INTERFACE
    ========================================================================== */
 .ultron-interface-wrapper {
   max-width: 900px;
   margin: 0 auto;
-  border: 1px solid #2a2a2a;
+  border: 1px solid #222222;
+  border-top: 2px solid #ff3344;
   background: #080808;
   display: flex;
   flex-direction: column;
   min-height: 75vh;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8), 0 0 1px rgba(255, 26, 26, 0.2);
 }
 
 .ultron-header {
   padding: 16px 20px;
   background: #0d0d0d;
-  border-bottom: 1px solid #222;
+  border-bottom: 1px solid #202020;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -373,13 +412,13 @@ a {
   gap: 12px;
 }
 
-.ultron-pulse-ring {
-  width: 10px;
-  height: 10px;
-  background: #ff1a1a;
-  border-radius: 50%;
-  box-shadow: 0 0 10px #ff1a1a, 0 0 20px rgba(255, 26, 26, 0.5);
-  animation: pulseDot 1.8s infinite;
+.ultron-status-tag {
+  font-size: 0.65rem;
+  color: #ff3344;
+  border: 1px solid #ff3344;
+  padding: 2px 6px;
+  letter-spacing: 1px;
+  background: #180909;
 }
 
 .ultron-title {
@@ -634,8 +673,7 @@ a {
 }
 
 .ultron-input-wrapper:focus-within {
-  border-color: #ff2a2a;
-  box-shadow: 0 0 8px rgba(255, 42, 42, 0.15);
+  border-color: #ff3344;
 }
 
 .ultron-prompt-icon {
@@ -656,10 +694,10 @@ a {
 }
 
 .ultron-send-btn {
-  padding: 0 18px;
-  background: #ff1a1a;
-  border: 1px solid #ff1a1a;
-  color: #000;
+  width: 48px;
+  background: #181818;
+  border: 1px solid #333333;
+  color: #ffffff;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -668,14 +706,14 @@ a {
 }
 
 .ultron-send-btn:hover:not(:disabled) {
-  background: #ffffff;
-  border-color: #ffffff;
+  background: #ff3344;
+  border-color: #ff3344;
   color: #000000;
 }
 
 .ultron-send-btn:disabled {
-  background: #222;
-  border-color: #333;
+  background: #141414;
+  border-color: #242424;
   color: #555;
   cursor: not-allowed;
 }

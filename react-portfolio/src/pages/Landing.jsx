@@ -14,11 +14,8 @@ const Landing = () => {
       <h1 className="landing-name">Abhishek Limaye</h1>
       <p className="landing-slogan">Digital Forensics & Cybersecurity | Evidence-Driven Security</p>
       <div className="landing-buttons">
-        <Link to="/ultron" className="btn btn-ultron-glow">
-          Query Ultron AI
-        </Link>
-        <Link to="/osint" className="btn">
-          OSINT Workstation
+        <Link to="/ultron" className="btn" style={{ borderColor: '#ff3344', color: '#ff3344' }}>
+          Query A-Ultron
         </Link>
         <Link to="/projects" className="btn">
           Projects

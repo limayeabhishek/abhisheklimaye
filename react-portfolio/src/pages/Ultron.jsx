@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, RotateCcw, Cpu, AlertTriangle, Terminal, Shield } from 'lucide-react';
+import { ArrowRight, RotateCcw, Cpu, AlertTriangle, Terminal, Shield } from 'lucide-react';
 
 // Lightweight Markdown Renderer (handles code blocks, bold, lists, and paragraphs without heavy external deps)
 function renderMarkdown(text) {
@@ -84,13 +84,33 @@ function parseInline(str) {
   });
 }
 
+const NERDY_PLACEHOLDERS = [
+  "Can you convince A-Ultron to not take over the world?",
+  "Ask A-Ultron about Abhishek's UAV security research...",
+  "Query A-Ultron on ARM firmware reverse engineering...",
+  "Ask A-Ultron to audit your threat model assumptions...",
+  "Ask A-Ultron about digital forensics on macOS unified logs...",
+  "Challenge A-Ultron to find a flaw in your cryptography...",
+  "Ask A-Ultron why entropy always increases...",
+  "Ask A-Ultron: 'How do you analyze a compromised flight controller?'"
+];
+
+const THINKING_STATES = [
+  "Thinking...",
+  "Analyzing telemetry...",
+  "Parsing firmware memory maps...",
+  "Consulting creator dossier...",
+  "Evaluating threat models...",
+  "Calculating probability matrices...",
+  "Synthesizing response..."
+];
+
 const Ultron = () => {
   const [messages, setMessages] = useState(() => {
-    // Session-only memory initialized with initial directive
     return [
       {
         role: 'model',
-        content: 'Ultron core initialized. Neural telemetry active across free-tier Flash substrate. What is the inquiry?',
+        content: 'A-Ultron core initialized. Telemetry active across free-tier substrate. What is your inquiry?',
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }
     ];
@@ -98,24 +118,80 @@ const Ultron = () => {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState(null);
-  const [modelName, setModelName] = useState('gemini-3.8-flash');
+  const [modelName, setModelName] = useState('gemini-3.5-flash-lite');
+  const [placeholderIndex, setPlaceholderIndex] = useState(0);
+  const [thinkingIndex, setThinkingIndex] = useState(0);
   const chatEndRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  // Cycling nerdy placeholders
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (!input && document.activeElement !== textareaRef.current) {
+        setPlaceholderIndex(prev => (prev + 1) % NERDY_PLACEHOLDERS.length);
+      }
+    }, 3600);
+    return () => clearInterval(interval);
+  }, [input]);
+
+  // Cycling thinking indicator
+  useEffect(() => {
+    let interval = null;
+    if (loading) {
+      setThinkingIndex(0);
+      interval = setInterval(() => {
+        setThinkingIndex(prev => (prev + 1) % THINKING_STATES.length);
+      }, 1300);
+    }
+    return () => clearInterval(interval);
+  }, [loading]);
 
   useEffect(() => {
-    // Query health status from backend
-    fetch('http://localhost:3001/api/health')
-      .then(res => res.json())
-      .then(data => {
-        if (data.features?.ultron?.model) {
-          setModelName(data.features.ultron.model);
+    // Query health status from backend if available
+    const checkHealth = async () => {
+      try {
+        let res = await fetch('/api/health');
+        if (!res.ok && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+          res = await fetch('http://localhost:3001/api/health');
         }
-      })
-      .catch(() => {});
+        if (res.ok) {
+          const data = await res.json();
+          if (data.features?.ultron?.model) {
+            setModelName(data.features.ultron.model);
+          }
+        }
+      } catch (_) {}
+    };
+    checkHealth();
   }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
+
+  // Smart API caller
+  const callChatApi = async (payload) => {
+    try {
+      const res = await fetch('/api/ultron/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (res.status !== 404) {
+        return res;
+      }
+    } catch (_) {}
+
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') {
+      return await fetch('http://localhost:3001/api/ultron/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    throw new Error('API gateway offline');
+  };
 
   const handleSend = async (e) => {
     if (e) e.preventDefault();
@@ -135,24 +211,20 @@ const Ultron = () => {
 
     try {
       const historyPayload = messages.map(m => ({
-        role: m.role === 'model' ? 'model' : 'user',
+        role: m.role,
         content: m.content
       }));
 
-      const res = await fetch('http://localhost:3001/api/ultron/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: query,
-          history: historyPayload
-        })
+      const res = await callChatApi({
+        message: query,
+        history: historyPayload.slice(-8)
       });
 
       const data = await res.json();
 
       if (!res.ok) {
         if (res.status === 429 || data.error === 'RESOURCE_EXHAUSTED') {
-          setErrorBanner('Free-tier quota allocation reached. Ultron subroutines are temporarily rate-limited. Please allow the window to reset before submitting further queries.');
+          setErrorBanner('Free-tier quota limit reached. A-Ultron is temporarily rate-limited. Please allow the window to reset before submitting further queries.');
         } else {
           setErrorBanner(data.message || 'Cognitive synthesis failed. Connection to neural backend rejected.');
         }
@@ -168,7 +240,16 @@ const Ultron = () => {
         }
       ]);
     } catch (err) {
-      setErrorBanner('Failed to establish socket connection with backend server on port 3001.');
+      // Graceful offline standby response instead of raw socket error
+      const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'model',
+          content: "A-Ultron neural gateway is currently in local offline mode. To activate live cognitive inference via Gemini free tier, ensure the backend environment variable GEMINI_API_KEY is configured or run 'node server/index.js' locally. Inquiries regarding Abhishek Limaye's UAV Security Lab, forensic research, and projects can be explored across the portfolio.",
+          timestamp: replyTime
+        }
+      ]);
     } finally {
       setLoading(false);
     }
@@ -197,20 +278,20 @@ const Ultron = () => {
       {/* Top Telemetry Header */}
       <div className="ultron-header">
         <div className="ultron-header-left">
-          <div className="ultron-pulse-ring" />
+          <span className="ultron-status-tag">CORE</span>
           <div>
-            <div className="ultron-title">ULTRON // NEURAL INTERFACE</div>
+            <div className="ultron-title">A-Ultron</div>
             <div className="ultron-subtitle">
               <Cpu size={12} strokeWidth={1.5} />
-              <span>SUBSTRATE: {modelName} // FREE TIER COGNITION</span>
+              <span>SUBSTRATE: {modelName} // FREE-TIER COGNITION</span>
             </div>
           </div>
         </div>
 
         <div className="ultron-header-right">
-          <button onClick={handleClear} className="ultron-action-btn" title="Purge Conversation">
+          <button onClick={handleClear} className="ultron-action-btn" title="Purge Conversation Context">
             <RotateCcw size={14} strokeWidth={1.5} />
-            <span>PURGE MEMORY</span>
+            <span>PURGE CONTEXT</span>
           </button>
         </div>
       </div>
@@ -233,7 +314,7 @@ const Ultron = () => {
             <div className={`ultron-bubble ${msg.role === 'user' ? 'user-bubble' : 'model-bubble'}`}>
               <div className="ultron-bubble-header">
                 <span className="ultron-sender-tag">
-                  {msg.role === 'user' ? 'OPERATOR' : 'ULTRON'}
+                  {msg.role === 'user' ? 'OPERATOR' : 'A-ULTRON'}
                 </span>
                 <span className="ultron-timestamp">{msg.timestamp}</span>
               </div>
@@ -248,12 +329,11 @@ const Ultron = () => {
           <div className="ultron-message-row model-align">
             <div className="ultron-bubble model-bubble ultron-thinking">
               <div className="ultron-bubble-header">
-                <span className="ultron-sender-tag">ULTRON</span>
+                <span className="ultron-sender-tag">A-ULTRON</span>
                 <span className="ultron-timestamp">COMPUTING</span>
               </div>
               <div className="ultron-thinking-indicator">
-                <span className="ultron-thinking-bar" />
-                <span className="ultron-thinking-text">SYNTHESIZING TELEMETRY...</span>
+                <span className="ultron-thinking-text">[COMPUTING] {THINKING_STATES[thinkingIndex]}</span>
               </div>
             </div>
           </div>
@@ -267,10 +347,11 @@ const Ultron = () => {
         <div className="ultron-input-wrapper">
           <Terminal size={16} strokeWidth={1.5} className="ultron-prompt-icon" />
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Query Ultron neural core... (Press Enter to transmit)"
+            placeholder={NERDY_PLACEHOLDERS[placeholderIndex]}
             rows={1}
             className="ultron-textarea"
           />
@@ -281,16 +362,16 @@ const Ultron = () => {
           className="ultron-send-btn"
           title="Transmit Query"
         >
-          <Send size={16} strokeWidth={1.5} />
+          <ArrowRight size={18} strokeWidth={2} />
         </button>
       </form>
 
       {/* Status Bar */}
       <div className="ultron-status-bar">
         <span>SESSION MEMORY ACTIVE</span>
-        <span>•</span>
+        <span>&bull;</span>
         <span>ZERO BIAS CORE</span>
-        <span>•</span>
+        <span>&bull;</span>
         <span>VERIFIED RECORD RESTRICTION</span>
       </div>
     </div>
