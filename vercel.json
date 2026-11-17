@@ -6,6 +6,16 @@
       "source": "/Abhishek__Limaye.pdf",
       "destination": "/Abhishek%20Limaye.pdf",
       "permanent": true
+    },
+    {
+      "source": "/tools/port-scanner",
+      "destination": "/#toolkit",
+      "permanent": false
+    },
+    {
+      "source": "/tools/pass-check",
+      "destination": "/#toolkit",
+      "permanent": false
     }
   ],
   "headers": [

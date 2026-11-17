@@ -6,16 +6,14 @@ This repository contains the source code for my personal portfolio website, desi
 
 ## 🚀 Features
 - **Portfolio Section**: Showcasing key cybersecurity projects.
-- **Toolkit Box**: Functional tools including HashCalculator, OSINT Search, Port Scanner, and PassCheck.
+- **Toolkit Box**: Functional tools including HashCalculator and OSINT Analyzer.
 - **Thoughts**: A blog section for sharing insights on data privacy and security.
 - **Vercel Ready**: Optimized for deployment with clean URLs and security headers.
 - **Responsive Design**: Modern, interactive UI that works across all devices.
 
 ## 🛠️ Toolkit
-- **HashCalculator**: Generate cryptographic hashes (SHA-256, etc.) locally using the Web Crypto API.
-- **OSINT Search**: Aggregated search for common investigative platforms.
-- **Port Scanner Simulator**: Interactive terminal-style scan simulation.
-- **PassCheck**: Real-time password strength evaluation.
+- **HashCalculator**: Forensic-grade cryptographic hash engine supporting text and local files (MD5, SHA-1, SHA-256, SHA-512) with integrity verification.
+- **OSINT Analyzer**: Self-contained indicator classification, email forensics, disposable domain detection, DGA entropy analysis, and IP inspection.
 
 ## 📁 Project Structure
 - `index.html`: Main landing page.
