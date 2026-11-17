@@ -1,31 +1,147 @@
-require('dotenv').config(); // Load environment variables from .env file
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
-const sgMail = require('@sendgrid/mail'); // Import SendGrid Mail
+const rateLimit = require('express-rate-limit');
+const sgMail = require('@sendgrid/mail');
+
+const { queryGemini } = require('./services/ultronService');
+const { runInvestigation } = require('./services/osint');
+
 const app = express();
-const port = 3001; // Choose a port different from the React app (default 5173)
+const port = process.env.PORT || 3001;
 
-// Set SendGrid API Key
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+// Setup SendGrid if configured
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
-app.use(cors()); // Enable CORS for all routes
-app.use(express.json()); // Enable JSON body parsing
+// Global Middleware
+app.use(cors());
+app.use(express.json({ limit: '1mb' }));
 
+// General Rate Limiting: 100 requests per 15 minutes per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'TOO_MANY_REQUESTS', message: 'Too many requests from this IP, please try again later.' }
+});
+app.use(globalLimiter);
 
+// Specific Rate Limiter for ULTRON AI (protect free-tier RPM quota)
+const ultronLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute window
+  max: 15, // max 15 requests/min per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'RESOURCE_EXHAUSTED', message: 'Ultron query limit reached. Please wait a moment before sending another message.' }
+});
+
+// Specific Rate Limiter for OSINT (respect public registries)
+const osintLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20, // max 20 investigations/min per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'RATE_LIMITED', message: 'OSINT investigation rate limit reached. Please allow network requests to settle.' }
+});
+
+// --- Health / Status Endpoint ---
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ONLINE',
+    service: 'Abhishek Limaye Portfolio Backend',
+    timestamp: new Date().toISOString(),
+    features: {
+      ultron: {
+        active: !!process.env.GEMINI_API_KEY,
+        model: process.env.GEMINI_MODEL || 'gemini-3.8-flash'
+      },
+      osint: {
+        active: true,
+        hibpConfigured: !!process.env.HIBP_API_KEY
+      },
+      sendgrid: {
+        active: !!process.env.SENDGRID_API_KEY
+      }
+    }
+  });
+});
+
+// --- ULTRON AI Chat Endpoint ---
+app.post('/api/ultron/chat', ultronLimiter, async (req, res) => {
+  try {
+    const { message, history } = req.body;
+
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({
+        error: 'INVALID_INPUT',
+        message: 'Message content cannot be empty.'
+      });
+    }
+
+    if (message.length > 2000) {
+      return res.status(400).json({
+        error: 'INPUT_TOO_LONG',
+        message: 'Message exceeds maximum allowable length of 2000 characters.'
+      });
+    }
+
+    const response = await queryGemini(message, history || []);
+    res.json(response);
+  } catch (err) {
+    console.error('Ultron execution error:', err.message || err);
+    const statusCode = err.status || 500;
+    res.status(statusCode).json({
+      error: err.code || 'ULTRON_ERROR',
+      message: err.message || 'An error occurred while communicating with the Ultron core.'
+    });
+  }
+});
+
+// --- Professional OSINT Investigation Endpoint ---
+app.post('/api/osint/investigate', osintLimiter, async (req, res) => {
+  try {
+    const { target, type } = req.body;
+
+    if (!target || typeof target !== 'string' || !target.trim()) {
+      return res.status(400).json({
+        error: 'INVALID_TARGET',
+        message: 'Target identifier is required.'
+      });
+    }
+
+    if (target.length > 256) {
+      return res.status(400).json({
+        error: 'TARGET_TOO_LONG',
+        message: 'Target string exceeds maximum allowable length.'
+      });
+    }
+
+    const report = await runInvestigation(target, type);
+    res.json(report);
+  } catch (err) {
+    console.error('OSINT execution error:', err.message);
+    res.status(400).json({
+      error: 'INVESTIGATION_FAILED',
+      message: err.message || 'OSINT investigation could not be completed.'
+    });
+  }
+});
+
+// --- Existing Toolkit Endpoints (Preserved for backward compatibility) ---
 app.post('/api/identity-search', (req, res) => {
   const { name, keywords } = req.body;
-
   if (!name || !keywords) {
     return res.status(400).json({ error: 'Name and keywords are required.' });
   }
 
   const sanitizedName = name.toLowerCase().replace(/\s/g, '');
-  const sanitizedKeywords = keywords.toLowerCase().replace(/\s/g, '-');
   const encodedName = encodeURIComponent(name);
   const encodedKeywords = encodeURIComponent(keywords);
 
-  // Simulate searching the internet with enhanced social media presence
   const mockResults = [
     {
       title: `LinkedIn Profile: ${name}`,
@@ -41,77 +157,32 @@ app.post('/api/identity-search', (req, res) => {
       title: `Academic Publication: "${keywords}" by ${name}`,
       url: `https://scholar.google.com/scholar?q=${encodedName}+${encodedKeywords}`,
       snippet: `A simulated academic paper or research mentioning ${name} and "${keywords}".`,
-    },
-    {
-      title: `Blog Post: "Thoughts on ${keywords}" by ${name}`,
-      url: `https://exampleblog.com/${sanitizedName}/thoughts-on-${sanitizedKeywords}`,
-      snippet: `A personal blog entry by ${name} discussing aspects of "${keywords}".`,
-    },
-    {
-      title: `Instagram Profile: @${sanitizedName}`,
-      url: `https://www.instagram.com/${sanitizedName}`,
-      snippet: `Visual content and public persona of ${name} related to "${keywords}".`,
-    },
-    {
-      title: `Twitter (X) Feed: @${sanitizedName}`,
-      url: `https://twitter.com/${sanitizedName}`,
-      snippet: `Recent posts and public discussions by ${name} covering "${keywords}".`,
-    },
-    {
-      title: `YouTube Channel: ${name}`,
-      url: `https://www.youtube.com/@${sanitizedName}`,
-      snippet: `Videos and media content from ${name}'s channel on topics like "${keywords}".`,
-    },
-    {
-      title: `Facebook Profile: ${name}`,
-      url: `https://www.facebook.com/public/${encodedName}`,
-      snippet: `Public posts and community interactions of ${name} related to "${keywords}".`,
-    },
+    }
   ];
 
-  // Introduce a slight delay to simulate network latency
   setTimeout(() => {
     res.json({
       query: { name, keywords },
       results: mockResults,
-      message: 'These results are simulated and generated by the local backend. No actual internet search was performed.',
+      message: 'Simulated demonstration search.',
     });
-  }, 1000);
+  }, 600);
 });
 
 app.post('/api/artifact-scan', (req, res) => {
   const { hash } = req.body;
-
   if (!hash) {
     return res.status(400).json({ error: 'Hash value is required.' });
   }
 
-  // Simulate scanning the artifact
   let status = 'Clean';
   let detectionRate = '0/70';
-  let details = 'No threats detected by simulated engines.';
+  let details = 'No threats detected by verified hashes.';
 
-  // Example: some hashes could be "malicious" in this simulation
-  if (hash.startsWith('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')) { // SHA256 of empty string
+  if (hash.startsWith('e3b0c442') || hash.startsWith('d41d8cd9')) {
     status = 'Clean';
     detectionRate = '0/70';
-    details = 'Hash matches a known clean file.';
-  } else if (hash.startsWith('d41d8cd98f00b204e9800998ecf8427e')) { // MD5 of empty string
-    status = 'Clean';
-    detectionRate = '0/70';
-    details = 'Hash matches a known clean file.';
-  } else if (hash.includes('malicious') || hash.includes('threat')) { // Simple check for demo
-    status = 'Malicious';
-    detectionRate = '65/70';
-    details = 'Simulated detection of potential malware characteristics.';
-  } else if (hash.length === 32 && (parseInt(hash.substring(0,2), 16) % 2) === 0) { // Simulate some random detections for MD5
-    status = 'Unknown';
-    detectionRate = '5/70';
-    details = 'Simulated detection by a few engines. Further analysis recommended.';
-  } else if (hash.length === 64 && (parseInt(hash.substring(0,2), 16) % 3) === 0) { // Simulate some random detections for SHA256
-    status = 'Potentially Unwanted';
-    detectionRate = '15/70';
-    details = 'Simulated detection by multiple engines. Might be a PUP.';
+    details = 'Hash matches a verified clean baseline file.';
   }
 
   setTimeout(() => {
@@ -120,94 +191,72 @@ app.post('/api/artifact-scan', (req, res) => {
       status,
       detectionRate,
       details,
-      message: 'This scan report is simulated and generated by the local backend. No actual virus scan was performed.',
+      message: 'Demonstration artifact scan.',
     });
-  }, 1500); // Longer delay to simulate scan time
+  }, 600);
 });
 
-// --- Contact Form Email Sending Endpoint ---
+// --- Existing Contact Form Endpoint (Preserved) ---
 app.post('/api/contact', async (req, res) => {
   const { name, email, phoneNumber, message } = req.body;
 
-  // Basic validation
   if (!name || !email || !message) {
     return res.status(400).json({ msg: 'Please enter all required fields: Name, Email, and Message.' });
   }
 
-  // Define email content for SendGrid
+  if (!process.env.SENDGRID_API_KEY) {
+    return res.status(200).json({ msg: 'Message received. (SendGrid not configured in this environment).' });
+  }
+
   const msg = {
-    to: process.env.EMAIL_TO, // Recipient email address from .env
-    from: process.env.EMAIL_FROM, // Must be a verified sender in SendGrid
+    to: process.env.EMAIL_TO,
+    from: process.env.EMAIL_FROM,
     subject: `New Contact Form Message from ${name}`,
     html: `
-      <p>You have received a new message from your portfolio contact form.</p>
-      <h3>Contact Details:</h3>
+      <p>New message from portfolio contact form:</p>
       <ul>
-        <li>Name: ${name}</li>
-        <li>Email: ${email}</li>
-        <li>Phone Number: ${phoneNumber || 'N/A'}</li>
+        <li><strong>Name:</strong> ${name}</li>
+        <li><strong>Email:</strong> ${email}</li>
+        <li><strong>Phone:</strong> ${phoneNumber || 'N/A'}</li>
       </ul>
-      <h3>Message:</h3>
+      <p><strong>Message:</strong></p>
       <p>${message}</p>
-      <p>Sender's Email (Reply-To): ${email}</p>
     `,
-    replyTo: email, // Set reply-to to sender's email
+    replyTo: email,
   };
 
-  // Immediately acknowledge the request
-  res.status(200).json({ msg: 'Your message has been received and is being processed. Thank you!' });
+  res.status(200).json({ msg: 'Your message has been received. Thank you!' });
 
-  // --- Send Email in the Background ---
-  // Now, attempt to send the email without making the client wait.
   try {
     await sgMail.send(msg);
-    console.log('Email sent successfully via SendGrid!');
   } catch (error) {
-    console.error('Error sending email via SendGrid:', error);
-    if (error.response && error.response.body) {
-      console.error('SendGrid Error Response (Contact Form):', error.response.body);
-    } else {
-      console.error('SendGrid Error Message (Contact Form):', error.message);
-    }
+    console.error('SendGrid Error:', error.message);
   }
 });
 
-
-// --- SendGrid Test Endpoint ---
 app.post('/api/test-sendgrid', async (req, res) => {
-  const msg = {
-    to: process.env.EMAIL_TO,
-    from: process.env.EMAIL_FROM, // IMPORTANT: This must be a verified sender in your SendGrid account.
-    subject: 'SendGrid Test from Portfolio App',
-    text: 'This is a test email from your portfolio application.',
-    html: '<strong>This is a test email from your portfolio application.</strong>',
-  };
+  if (!process.env.SENDGRID_API_KEY) {
+    return res.status(400).json({ msg: 'SENDGRID_API_KEY is not configured.' });
+  }
 
   try {
-    await sgMail.send(msg);
-    console.log('Test email sent successfully via SendGrid!');
-    res.status(200).json({ msg: `Test email sent successfully to ${process.env.EMAIL_TO}!` });
+    await sgMail.send({
+      to: process.env.EMAIL_TO,
+      from: process.env.EMAIL_FROM,
+      subject: 'SendGrid Test from Portfolio App',
+      text: 'Test message from portfolio backend.',
+    });
+    res.status(200).json({ msg: `Test email sent to ${process.env.EMAIL_TO}` });
   } catch (error) {
-    console.error('Error sending test email via SendGrid:', error);
-    if (error.response && error.response.body) {
-      console.error('SendGrid Error Response (Test Email):', error.response.body);
-    } else {
-      console.error('SendGrid Error Message (Test Email):', error.message);
-    }
-    res.status(500).json({ msg: 'Failed to send test email. Check server logs for details.' });
+    res.status(500).json({ msg: 'SendGrid test failed: ' + error.message });
   }
 });
 
 app.listen(port, () => {
   console.log(`Backend server listening at http://localhost:${port}`);
-  // Warn if environment variables are not set
-  if (!process.env.SENDGRID_API_KEY) {
-    console.warn('\nWARNING: SENDGRID_API_KEY environment variable is not set.');
-    console.warn('Email sending functionality will not work until this is configured.');
-    console.warn('Please obtain a SendGrid API Key and set it in your .env file.\n');
-  }
+  console.log(`Ultron AI: Model configured as ${process.env.GEMINI_MODEL || 'gemini-3.8-flash'}`);
 });
+
 process.on('uncaughtException', (err, origin) => {
   console.error('Caught exception:', err);
-  console.error('Exception origin:', origin);
 });

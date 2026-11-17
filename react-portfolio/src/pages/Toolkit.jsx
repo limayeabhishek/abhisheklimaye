@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import SparkMD5 from 'spark-md5';
 
 // Helper function to convert ArrayBuffer to hex string
@@ -347,26 +348,38 @@ const Toolkit = () => {
   const [selectedTool, setSelectedTool] = useState(null); // null means no tool selected
 
   const toolOptions = [
+    { id: 'osint-hub', name: 'Professional OSINT Platform (Workstation)', isLink: true, linkTo: '/osint' },
     { id: 'hash', name: 'Hash Calculator', component: <HashCalculator /> },
     { id: 'log', name: 'Log Timeline Analyzer', component: <LogTimelineAnalyzer /> },
-    { id: 'identity', name: 'Human Identity Creator', component: <HumanIdentityCreator /> }, 
-    { id: 'scanner', name: 'Digital Artifact Scanner', component: <DigitalArtifactScanner /> }, // New tool
+    { id: 'identity', name: 'Identity Search Simulator', component: <HumanIdentityCreator /> }, 
+    { id: 'scanner', name: 'Digital Artifact Scanner', component: <DigitalArtifactScanner /> },
   ];
 
   return (
     <div className="page-container">
-      <h2 className="page-title">Demonstration Toolkit</h2>
+      <h2 className="page-title">Forensic & Security Toolkit</h2>
 
       {!selectedTool && (
         <div className="tool-selection-grid">
           {toolOptions.map(tool => (
-            <div 
-              key={tool.id} 
-              className="tool-card btn" 
-              onClick={() => setSelectedTool(tool.id)}
-            >
-              {tool.name}
-            </div>
+            tool.isLink ? (
+              <Link 
+                key={tool.id} 
+                to={tool.linkTo} 
+                className="tool-card btn"
+                style={{ borderColor: '#fff' }}
+              >
+                {tool.name} &rarr;
+              </Link>
+            ) : (
+              <div 
+                key={tool.id} 
+                className="tool-card btn" 
+                onClick={() => setSelectedTool(tool.id)}
+              >
+                {tool.name}
+              </div>
+            )
           ))}
         </div>
       )}

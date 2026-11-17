@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ULTRON - Personal AI Assistant and Cognitive Cyber Core of Abhishek Limaye.">
+    <title>ULTRON // Autonomous Cognitive AI Core - Abhishek Limaye</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #050505;
+            color: #dddddd;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        }
+        .ultron-page-wrapper {
+            max-width: 900px;
+            margin: 80px auto 40px auto;
+            padding: 0 1rem;
+        }
+        .ultron-console {
+            background: #090909;
+            border: 1px solid #282828;
+            border-top: 2px solid #ff1a1a;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 15px rgba(255, 26, 26, 0.15);
+            display: flex;
+            flex-direction: column;
+            min-height: 70vh;
+        }
+        .ultron-top-bar {
+            padding: 14px 20px;
+            background: #0d0d0d;
+            border-bottom: 1px solid #222;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .ultron-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .pulse-dot {
+            width: 10px;
+            height: 10px;
+            background: #ff1a1a;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #ff1a1a;
+            animation: pulse 1.8s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.85); }
+        }
+        .ultron-name {
+            font-size: 1rem;
+            font-weight: bold;
+            letter-spacing: 1.5px;
+            color: #fff;
+        }
+        .ultron-sub {
+            font-size: 0.72rem;
+            color: #888;
+            letter-spacing: 0.5px;
+        }
+        .purge-btn {
+            background: #141414;
+            border: 1px solid #333;
+            color: #aaa;
+            padding: 6px 12px;
+            font-family: inherit;
+            font-size: 0.75rem;
+            letter-spacing: 0.8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .purge-btn:hover {
+            background: #222;
+            color: #fff;
+            border-color: #555;
+        }
+        .error-banner {
+            display: none;
+            background: #250808;
+            border-bottom: 1px solid #5a1515;
+            color: #ff7777;
+            padding: 10px 16px;
+            font-size: 0.82rem;
+        }
+        .chat-stream {
+            flex: 1;
+            padding: 24px 20px;
+            overflow-y: auto;
+            max-height: 520px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background: radial-gradient(circle at 50% 0%, #120808 0%, #060606 70%);
+        }
+        .msg-row {
+            display: flex;
+            width: 100%;
+        }
+        .msg-row.user {
+            justify-content: flex-end;
+        }
+        .msg-row.model {
+            justify-content: flex-start;
+        }
+        .bubble {
+            max-width: 82%;
+            padding: 14px 18px;
+            font-size: 0.92rem;
+            line-height: 1.6;
+        }
+        .bubble.user {
+            background: #151515;
+            border: 1px solid #333;
+            border-right: 3px solid #666;
+            color: #fff;
+        }
+        .bubble.model {
+            background: #0d0d0d;
+            border: 1px solid #281a1a;
+            border-left: 3px solid #ff1a1a;
+            color: #ddd;
+        }
+        .bubble-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.72rem;
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        }
+        .bubble.user .bubble-head {
+            color: #888;
+        }
+        .bubble.model .bubble-head {
+            color: #ff4455;
+        }
+        .bubble-body pre {
+            background: #050505;
+            border: 1px solid #222;
+            padding: 10px;
+            overflow-x: auto;
+            color: #ff9999;
+            font-size: 0.85rem;
+        }
+        .bubble-body code {
+            background: #1a1a1a;
+            padding: 2px 6px;
+            border: 1px solid #333;
+            color: #ff9999;
+            font-size: 0.85em;
+        }
+        .thinking-indicator {
+            display: none;
+            padding: 10px 0;
+            color: #ff4455;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+        }
+        .console-input-bar {
+            display: flex;
+            gap: 10px;
+            padding: 14px 18px;
+            background: #0d0d0d;
+            border-top: 1px solid #222;
+        }
+        .console-input {
+            flex: 1;
+            padding: 12px 14px;
+            background: #141414;
+            border: 1px solid #333;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.92rem;
+            outline: none;
+        }
+        .console-input:focus {
+            border-color: #ff2a2a;
+        }
+        .console-send {
+            padding: 0 20px;
+            background: #ff1a1a;
+            border: 1px solid #ff1a1a;
+            color: #000;
+            font-family: inherit;
+            font-weight: bold;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .console-send:hover {
+            background: #fff;
+            border-color: #fff;
+        }
+        .ultron-bottom-bar {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            padding: 8px 16px;
+            background: #050505;
+            border-top: 1px solid #1a1a1a;
+            font-size: 0.68rem;
+            letter-spacing: 1px;
+            color: #555;
+        }
+        .back-nav {
+            display: inline-block;
+            margin-bottom: 1.5rem;
+            color: #888;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .back-nav:hover {
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="name">ABHISHEK LIMAYE</div>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="index.html#about">About</a></li>
+                    <li><a href="index.html#projects">Projects</a></li>
+                    <li><a href="osint.html">OSINT Platform</a></li>
+                    <li><a href="ultron.html" style="color:#ff3344;">Ultron AI</a></li>
+                    <li><a href="index.html#contact">Contact</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="ultron-page-wrapper">
+            <a href="index.html" class="back-nav">&larr; Return to Main Portfolio</a>
+
+            <div class="ultron-console">
+                <div class="ultron-top-bar">
+                    <div class="ultron-brand">
+                        <div class="pulse-dot"></div>
+                        <div>
+                            <div class="ultron-name">ULTRON // NEURAL INTERFACE</div>
+                            <div class="ultron-sub">SUBSTRATE: GEMINI-3.5-FLASH-LITE // FREE-TIER COGNITION</div>
+                        </div>
+                    </div>
+                    <button class="purge-btn" onclick="purgeMemory()">PURGE CONTEXT</button>
+                </div>
+
+                <div class="error-banner" id="error-banner"></div>
+
+                <div class="chat-stream" id="chat-stream">
+                    <div class="msg-row model">
+                        <div class="bubble model">
+                            <div class="bubble-head">
+                                <span>ULTRON</span>
+                                <span id="initial-time">00:00</span>
+                            </div>
+                            <div class="bubble-body">
+                                Ultron core initialized. Neural telemetry active across free-tier Flash substrate. What is the inquiry?
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="thinking-indicator" id="thinking-indicator">
+                    [COMPUTING] SYNTHESIZING NEURAL TELEMETRY...
+                </div>
+
+                <div class="console-input-bar">
+                    <input 
+                        type="text" 
+                        id="user-input" 
+                        class="console-input" 
+                        placeholder="Query Ultron neural core... (Press Enter to transmit)"
+                        onkeydown="if(event.key==='Enter') transmitMessage()"
+                    >
+                    <button class="console-send" onclick="transmitMessage()">TRANSMIT</button>
+                </div>
+
+                <div class="ultron-bottom-bar">
+                    <span>SESSION MEMORY ACTIVE</span>
+                    <span>•</span>
+                    <span>ZERO BIAS CORE</span>
+                    <span>•</span>
+                    <span>VERIFIED RECORD RESTRICTION</span>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        const chatHistory = [
+            { role: 'model', content: 'Ultron core initialized. Neural telemetry active across free-tier Flash substrate. What is the inquiry?' }
+        ];
+
+        document.getElementById('initial-time').innerText = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        function purgeMemory() {
+            chatHistory.length = 0;
+            const stream = document.getElementById('chat-stream');
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            stream.innerHTML = `
+                <div class="msg-row model">
+                    <div class="bubble model">
+                        <div class="bubble-head"><span>ULTRON</span><span>${now}</span></div>
+                        <div class="bubble-body">Telemetry buffer purged. Context reset to baseline parameters.</div>
+                    </div>
+                </div>
+            `;
+            chatHistory.push({ role: 'model', content: 'Telemetry buffer purged. Context reset to baseline parameters.' });
+            document.getElementById('error-banner').style.display = 'none';
+        }
+
+        async function transmitMessage() {
+            const input = document.getElementById('user-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            input.value = '';
+            const stream = document.getElementById('chat-stream');
+            const errBanner = document.getElementById('error-banner');
+            const thinking = document.getElementById('thinking-indicator');
+            errBanner.style.display = 'none';
+
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            // Append user message
+            const userMsg = document.createElement('div');
+            userMsg.className = 'msg-row user';
+            userMsg.innerHTML = `
+                <div class="bubble user">
+                    <div class="bubble-head"><span>OPERATOR</span><span>${now}</span></div>
+                    <div class="bubble-body">${escapeHtml(text)}</div>
+                </div>
+            `;
+            stream.appendChild(userMsg);
+            stream.scrollTop = stream.scrollHeight;
+
+            thinking.style.display = 'block';
+
+            try {
+                const res = await fetch('http://localhost:3001/api/ultron/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: text,
+                        history: chatHistory.slice(-8)
+                    })
+                });
+
+                const data = await res.json();
+                thinking.style.display = 'none';
+
+                if (!res.ok) {
+                    errBanner.style.display = 'block';
+                    if (res.status === 429 || data.error === 'RESOURCE_EXHAUSTED') {
+                        errBanner.innerText = 'Free-tier allocation exhausted. Ultron subroutines are temporarily rate-limited. Please allow the quota window to reset before sending further queries.';
+                    } else {
+                        errBanner.innerText = data.message || 'Cognitive synthesis failed.';
+                    }
+                    return;
+                }
+
+                // Add to history
+                chatHistory.push({ role: 'user', content: text });
+                chatHistory.push({ role: 'model', content: data.reply });
+
+                const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const modelMsg = document.createElement('div');
+                modelMsg.className = 'msg-row model';
+                modelMsg.innerHTML = `
+                    <div class="bubble model">
+                        <div class="bubble-head"><span>ULTRON</span><span>${replyTime}</span></div>
+                        <div class="bubble-body">${formatMarkdown(data.reply)}</div>
+                    </div>
+                `;
+                stream.appendChild(modelMsg);
+                stream.scrollTop = stream.scrollHeight;
+
+            } catch (err) {
+                thinking.style.display = 'none';
+                errBanner.style.display = 'block';
+                errBanner.innerText = 'Failed to establish connection with Ultron backend on port 3001. Ensure the server is active.';
+            }
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        function formatMarkdown(text) {
+            if (!text) return '';
+            let html = escapeHtml(text);
+            // Code blocks
+            html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+            // Inline code
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            // Bold
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            // Paragraph breaks
+            html = html.replace(/\n\n/g, '<br><br>');
+            html = html.replace(/\n/g, '<br>');
+            return html;
+        }
+    </script>
+</body>
+</html>

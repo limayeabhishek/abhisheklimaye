@@ -6,6 +6,16 @@
     <priority>1.0</priority>
   </url>
   <url>
+    <loc>https://abhisheklimaye.github.io/ultron.html</loc>
+    <lastmod>2026-11-17</lastmod>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://abhisheklimaye.github.io/osint.html</loc>
+    <lastmod>2026-11-17</lastmod>
+    <priority>0.9</priority>
+  </url>
+  <url>
     <loc>https://abhisheklimaye.github.io/projects/uav-security-lab.html</loc>
     <lastmod>2026-11-17</lastmod>
     <priority>0.8</priority>

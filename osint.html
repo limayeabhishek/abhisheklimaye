@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Professional OSINT Investigation Platform by Abhishek Limaye. Real-time multi-source digital footprint reconnaissance.">
+    <title>OSINT Investigation Platform - Abhishek Limaye</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #060606;
+            color: #ddd;
+            font-family: 'IBM Plex Mono', 'Courier New', monospace;
+        }
+        .osint-container {
+            max-width: 950px;
+            margin: 80px auto 40px auto;
+            padding: 0 1rem;
+        }
+        .workstation-top {
+            margin-bottom: 2rem;
+        }
+        .badge-line {
+            font-size: 0.75rem;
+            color: #888;
+            letter-spacing: 1px;
+            border-left: 2px solid #fff;
+            padding-left: 8px;
+            margin-bottom: 8px;
+        }
+        h1 {
+            font-size: 2rem;
+            color: #fff;
+            margin: 0 0 8px 0;
+        }
+        .desc {
+            color: #aaa;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+        .console-box {
+            background: #0c0c0c;
+            border: 1px solid #2a2a2a;
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 240px 1fr;
+            gap: 16px;
+        }
+        @media (max-width: 700px) {
+            .form-grid { grid-template-columns: 1fr; }
+        }
+        label {
+            display: block;
+            font-size: 0.78rem;
+            color: #888;
+            margin-bottom: 6px;
+            letter-spacing: 0.8px;
+        }
+        select, input[type="text"] {
+            width: 100%;
+            padding: 10px 12px;
+            background: #141414;
+            border: 1px solid #333;
+            color: #fff;
+            font-family: inherit;
+            font-size: 0.9rem;
+            box-sizing: border-box;
+        }
+        select:focus, input[type="text"]:focus {
+            outline: none;
+            border-color: #fff;
+        }
+        .btn-action {
+            padding: 10px 24px;
+            background: #fff;
+            color: #000;
+            border: none;
+            font-family: inherit;
+            font-weight: bold;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            cursor: pointer;
+            margin-top: 22px;
+            transition: opacity 0.2s;
+        }
+        .btn-action:hover:not(:disabled) {
+            opacity: 0.85;
+        }
+        .btn-action:disabled {
+            background: #333;
+            color: #777;
+            cursor: not-allowed;
+        }
+        .history-strip {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid #1a1a1a;
+            font-size: 0.75rem;
+            color: #666;
+            overflow-x: auto;
+        }
+        .chip {
+            background: #151515;
+            border: 1px solid #2a2a2a;
+            color: #aaa;
+            padding: 2px 8px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .chip:hover {
+            background: #222;
+            color: #fff;
+        }
+        .loading-card {
+            display: none;
+            text-align: center;
+            padding: 30px;
+            background: #0a0a0a;
+            border: 1px solid #222;
+            margin-bottom: 24px;
+        }
+        .report-section {
+            display: none;
+        }
+        .report-card {
+            background: #0a0a0a;
+            border: 1px solid #222;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-top: 16px;
+        }
+        .metric-box {
+            background: #111;
+            border: 1px solid #222;
+            padding: 12px;
+            text-align: center;
+        }
+        .metric-num {
+            font-size: 1.6rem;
+            font-weight: bold;
+            color: #fff;
+        }
+        .metric-lbl {
+            font-size: 0.68rem;
+            color: #777;
+            letter-spacing: 0.8px;
+            margin-top: 4px;
+        }
+        .tabs-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid #222;
+            padding-bottom: 4px;
+        }
+        .tab-btn {
+            background: none;
+            border: 1px solid transparent;
+            color: #777;
+            padding: 8px 12px;
+            font-family: inherit;
+            font-size: 0.78rem;
+            letter-spacing: 0.8px;
+            cursor: pointer;
+        }
+        .tab-btn.active {
+            color: #fff;
+            background: #141414;
+            border-color: #333;
+            font-weight: bold;
+        }
+        .finding-item {
+            background: #0c0c0c;
+            border: 1px solid #222;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            border-left: 3px solid #55ff99;
+        }
+        .finding-item.possible {
+            border-left-color: #ffcc00;
+        }
+        .finding-item.unverified {
+            border-left-color: #555;
+        }
+        .badge {
+            font-size: 0.7rem;
+            font-weight: bold;
+            padding: 2px 8px;
+            text-transform: uppercase;
+        }
+        .badge-confirmed {
+            background: #003311;
+            color: #55ff99;
+            border: 1px solid #006622;
+        }
+        .badge-possible {
+            background: #332800;
+            color: #ffcc00;
+            border: 1px solid #665200;
+        }
+        .badge-unverified {
+            background: #1a1a1a;
+            color: #888;
+            border: 1px solid #333;
+        }
+        .export-btn {
+            background: #141414;
+            border: 1px solid #333;
+            color: #ccc;
+            padding: 6px 12px;
+            font-family: inherit;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        .export-btn:hover {
+            background: #fff;
+            color: #000;
+        }
+        .relation-box {
+            background: #111;
+            border: 1px solid #222;
+            padding: 12px;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        .back-nav {
+            display: inline-block;
+            margin-bottom: 1.5rem;
+            color: #888;
+            text-decoration: none;
+        }
+        .back-nav:hover {
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="name">ABHISHEK LIMAYE</div>
+            <nav>
+                <ul>
+                    <li><a href="index.html">Home</a></li>
+                    <li><a href="index.html#about">About</a></li>
+                    <li><a href="index.html#projects">Projects</a></li>
+                    <li><a href="osint.html" style="color:#fff; text-decoration: underline;">OSINT Platform</a></li>
+                    <li><a href="ultron.html" style="color:#ff3344;">Ultron AI</a></li>
+                    <li><a href="index.html#contact">Contact</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="osint-container">
+            <a href="index.html" class="back-nav">&larr; Return to Main Portfolio</a>
+
+            <div class="workstation-top">
+                <div class="badge-line">PASSIVE DIGITAL FOOTPRINT RECONNAISSANCE WORKSTATION</div>
+                <h1>OSINT Investigation Platform</h1>
+                <p class="desc">Structured digital footprint assessment engine. Aggregates live DNS zones, TLS certificates, Certificate Transparency logs, developer profiles, and email integrity metrics with cross-source correlation.</p>
+            </div>
+
+            <div class="console-box">
+                <div class="form-grid">
+                    <div>
+                        <label>INVESTIGATION TYPE</label>
+                        <select id="osint-type">
+                            <option value="username">Username / Social Handle</option>
+                            <option value="email">Email Address</option>
+                            <option value="domain">Domain / Hostname</option>
+                            <option value="ip">IP Address (IPv4 / IPv6)</option>
+                            <option value="organization">Organization</option>
+                            <option value="person">Person (Consent-based)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>TARGET IDENTIFIER</label>
+                        <input type="text" id="osint-target" placeholder="e.g. username, target@domain.com, or example.com" onkeydown="if(event.key==='Enter') executeInvestigation()">
+                    </div>
+                </div>
+                <button class="btn-action" id="launch-btn" onclick="executeInvestigation()">INITIALIZE INVESTIGATION</button>
+
+                <div class="history-strip" id="history-strip" style="display:none;">
+                    <span>RECENT:</span>
+                    <div id="history-items" style="display:flex; gap:6px; overflow-x:auto;"></div>
+                </div>
+            </div>
+
+            <div class="loading-card" id="loading-card">
+                <div style="font-size:0.9rem; color:#fff; margin-bottom:8px;">[QUERYING] INTERROGATING REGISTRIES & PASSIVE SOURCES...</div>
+                <div style="font-size:0.8rem; color:#777;">Performing DNS zone queries, TLS verification, platform API probes, and correlation analysis.</div>
+            </div>
+
+            <div class="report-section" id="report-section">
+                <div class="report-card">
+                    <div class="report-header">
+                        <div>
+                            <div style="font-size:0.75rem; color:#888;" id="rep-case-id">CASE: -</div>
+                            <h2 style="font-size:1.4rem; color:#fff; margin:4px 0;" id="rep-target">TARGET: -</h2>
+                            <div style="font-size:0.75rem; color:#666;" id="rep-meta">TYPE: -</div>
+                        </div>
+                        <div>
+                            <button class="export-btn" onclick="exportData('json')">EXPORT JSON</button>
+                            <button class="export-btn" onclick="exportData('md')">EXPORT MD</button>
+                        </div>
+                    </div>
+
+                    <div style="background:#111; padding:12px 14px; border-left:2px solid #555; font-size:0.9rem; line-height:1.6;" id="rep-summary">
+                        -
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-box">
+                            <div class="metric-num" id="metric-confirmed">0</div>
+                            <div class="metric-lbl">CONFIRMED FINDINGS</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-num" id="metric-possible">0</div>
+                            <div class="metric-lbl">POSSIBLE MATCHES</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-num" id="metric-relations">0</div>
+                            <div class="metric-lbl">CORRELATED LINKS</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-num" id="metric-sources">0</div>
+                            <div class="metric-lbl">SOURCES INGESTED</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-card" id="relations-card" style="display:none;">
+                    <div style="font-size:0.88rem; font-weight:bold; color:#fff; margin-bottom:12px;">CROSS-SOURCE CORRELATION MATRIX</div>
+                    <div id="relations-list"></div>
+                </div>
+
+                <div class="tabs-row">
+                    <button class="tab-btn active" onclick="switchFilter('all', this)" id="tab-all">ALL FINDINGS</button>
+                    <button class="tab-btn" onclick="switchFilter('confirmed', this)" id="tab-conf">CONFIRMED</button>
+                    <button class="tab-btn" onclick="switchFilter('possible', this)" id="tab-poss">POSSIBLE</button>
+                </div>
+
+                <div id="findings-container"></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        let currentReport = null;
+        let currentFilter = 'all';
+
+        async function executeInvestigation() {
+            const target = document.getElementById('osint-target').value.trim();
+            const type = document.getElementById('osint-type').value;
+            if (!target) return;
+
+            const loading = document.getElementById('loading-card');
+            const repSec = document.getElementById('report-section');
+            const btn = document.getElementById('launch-btn');
+
+            loading.style.display = 'block';
+            repSec.style.display = 'none';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('http://localhost:3001/api/osint/investigate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target, type })
+                });
+
+                const data = await res.json();
+                loading.style.display = 'none';
+                btn.disabled = false;
+
+                if (!res.ok) {
+                    alert('Investigation error: ' + (data.message || 'Operation failed.'));
+                    return;
+                }
+
+                currentReport = data;
+                renderReport(data);
+                repSec.style.display = 'block';
+                repSec.scrollIntoView({ behavior: 'smooth' });
+
+            } catch (err) {
+                loading.style.display = 'none';
+                btn.disabled = false;
+                alert('Connection failure: Unable to reach OSINT engine on port 3001.');
+            }
+        }
+
+        function renderReport(data) {
+            document.getElementById('rep-case-id').innerText = `CASE: ${data.investigationId}`;
+            document.getElementById('rep-target').innerText = `TARGET: ${data.target}`;
+            document.getElementById('rep-meta').innerText = `TYPE: ${data.type.toUpperCase()} // TIMESTAMP: ${new Date(data.timestamp).toLocaleString()}`;
+            document.getElementById('rep-summary').innerText = data.executiveSummary;
+
+            document.getElementById('metric-confirmed').innerText = data.confirmedFindings?.length || 0;
+            document.getElementById('metric-possible').innerText = data.possibleFindings?.length || 0;
+            document.getElementById('metric-relations').innerText = data.relationships?.length || 0;
+            document.getElementById('metric-sources').innerText = data.sourcesReferenced?.length || 0;
+
+            // Relations
+            const relCard = document.getElementById('relations-card');
+            const relList = document.getElementById('relations-list');
+            relList.innerHTML = '';
+            if (data.relationships && data.relationships.length > 0) {
+                relCard.style.display = 'block';
+                data.relationships.forEach(r => {
+                    const d = document.createElement('div');
+                    d.className = 'relation-box';
+                    d.innerHTML = `<strong>${escapeHtml(r.from)} &rarr; ${escapeHtml(r.to)}</strong><br><span style="color:#aaa;">${escapeHtml(r.explanation)}</span>`;
+                    relList.appendChild(d);
+                });
+            } else {
+                relCard.style.display = 'none';
+            }
+
+            renderFindingsList();
+        }
+
+        function renderFindingsList() {
+            if (!currentReport) return;
+            const container = document.getElementById('findings-container');
+            container.innerHTML = '';
+
+            let list = [];
+            if (currentFilter === 'confirmed') list = currentReport.confirmedFindings || [];
+            else if (currentFilter === 'possible') list = currentReport.possibleFindings || [];
+            else list = [...(currentReport.confirmedFindings || []), ...(currentReport.possibleFindings || []), ...(currentReport.unverifiedFindings || [])];
+
+            list.forEach(f => {
+                const item = document.createElement('div');
+                const isConf = f.confidence === 'Confirmed';
+                const isPoss = f.confidence?.includes('confidence');
+                item.className = 'finding-item ' + (isConf ? 'confirmed' : isPoss ? 'possible' : 'unverified');
+
+                item.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-weight:bold; color:#fff;">${escapeHtml(f.source || f.platform)}</span>
+                        <span class="badge ${isConf ? 'badge-confirmed' : isPoss ? 'badge-possible' : 'badge-unverified'}">${f.confidence || 'Unverified'}</span>
+                    </div>
+                    <div style="font-size:0.88rem; color:#ccc; line-height:1.5; margin-bottom:8px;">${escapeHtml(f.observation)}</div>
+                    <div style="font-size:0.72rem; color:#666;">METHOD: ${escapeHtml(f.collectionMethod || 'Public HTTP')} | <a href="${escapeHtml(f.sourceUrl || '#')}" target="_blank" style="color:#888;">[SOURCE URL]</a></div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function switchFilter(type, btn) {
+            currentFilter = type;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            renderFindingsList();
+        }
+
+        function exportData(format) {
+            if (!currentReport) return;
+            let content, mime, ext;
+            if (format === 'json') {
+                content = JSON.stringify(currentReport, null, 2);
+                mime = 'application/json';
+                ext = 'json';
+            } else {
+                content = `# OSINT REPORT: ${currentReport.target}\nID: ${currentReport.investigationId}\n\n${currentReport.executiveSummary}\n`;
+                mime = 'text/markdown';
+                ext = 'md';
+            }
+            const blob = new Blob([content], { type: mime });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `OSINT_${currentReport.investigationId}.${ext}`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+    </script>
+</body>
+</html>

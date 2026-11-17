@@ -14,6 +14,15 @@ const Landing = () => {
       <h1 className="landing-name">Abhishek Limaye</h1>
       <p className="landing-slogan">Digital Forensics & Cybersecurity | Evidence-Driven Security</p>
       <div className="landing-buttons">
+        <Link to="/ultron" className="btn btn-ultron-glow">
+          Query Ultron AI
+        </Link>
+        <Link to="/osint" className="btn">
+          OSINT Workstation
+        </Link>
+        <Link to="/projects" className="btn">
+          Projects
+        </Link>
         <Link to="/contact" className="btn">
           Contact Me
         </Link>

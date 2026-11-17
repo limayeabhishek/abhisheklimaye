@@ -1,0 +1,90 @@
+{
+  "creator": {
+    "name": "Abhishek Devendra Limaye",
+    "shortName": "Abhishek Limaye",
+    "role": "Cybersecurity & Digital Forensics Practitioner",
+    "contact": {
+      "email": "abhishek.d.limaye@gmail.com",
+      "github": "https://github.com/limayeabhishek",
+      "linkedin": "https://www.linkedin.com/in/abhishekdlimaye/"
+    },
+    "bio": "Cybersecurity and digital forensics practitioner specializing in evidence-driven analysis, digital forensic evidence handling, log forensics, SIEM alert triage, and UAV/firmware security engineering. Passionate about blue-team operations, digital forensics and incident response (DFIR), and empirical vulnerability assessment.",
+    "focusAreas": [
+      "Digital Forensics & Incident Response (DFIR)",
+      "Evidence Handling & Chain of Custody",
+      "Host & Network Forensic Analysis (Linux, macOS, Windows)",
+      "Log Analysis & macOS Unified Logs",
+      "Firmware Reverse Engineering & Embedded Systems Security",
+      "Unmanned Aerial Vehicle (UAV) & MAVLink Protocol Auditing",
+      "Threat Hunting & SIEM Alert Triaging"
+    ],
+    "skills": {
+      "forensics": [
+        "Digital evidence acquisition & bit-for-bit imaging",
+        "Hardware and software write-blocker procedures",
+        "Chain of custody preservation and verification",
+        "macOS Unified Logs, sysdiagnose, and security auditing",
+        "Memory forensics & volatile artifact triage",
+        "File carving & cryptographic hash verification (MD5, SHA-256)",
+        "Wireshark packet capture analysis & telemetry protocol decoding"
+      ],
+      "reverseEngineering": [
+        "Ghidra disassembly & binary analysis",
+        "ARM Cortex-M (STM32F767) firmware unpacking (.apj / .px4)",
+        "Memory mapping & peripheral registers auditing"
+      ],
+      "developmentAndTooling": [
+        "Python (forensic scripting, protocol parsers, telemetry auditing)",
+        "JavaScript / React / Node.js (security tooling, full-stack portfolios)",
+        "Bash / Shell scripting",
+        "Docker / Containerization",
+        "Linux system administration & hardening"
+      ],
+      "securityFrameworks": [
+        "STRIDE Threat Modeling",
+        "CVSS v3.1 & v4.0 scoring",
+        "MAVLink 2 cryptographic signing (HMAC-SHA256)",
+        "RFC compliance verification"
+      ]
+    },
+    "keyProjects": [
+      {
+        "name": "SECUREDRONE (UAV-Security-Lab)",
+        "category": "Aerospace & Embedded Cybersecurity",
+        "url": "https://github.com/limayeabhishek/UAV-Security-Lab",
+        "summary": "An open-source, empirical UAV security research and assessment platform. Features headless PX4 SITL simulation, MAVLink 2 cryptographic signature validation, replay attack resilience evaluation, STM32F767 firmware reverse engineering with Ghidra, offline RF 2-GFSK IQ demodulation, and cyber-physical GNSS spoofing detection with Chi-squared innovation monitoring.",
+        "deliverables": "5-page publication-grade LaTeX technical report, 40+ page comprehensive manual, 3,748-frame Wireshark PCAPs, automated 13-test regression suite."
+      },
+      {
+        "name": "MacHeimdall",
+        "category": "macOS Forensics & DFIR",
+        "url": "https://github.com/limayeabhishek/MacHeimdall",
+        "summary": "macOS Intrusion Detection and Log Forensic Analysis platform. Analyzes macOS Unified Logs, authentication traces, process lifecycles, and authorization mechanisms to uncover suspicious activity in Apple ecosystems."
+      },
+      {
+        "name": "SentinelSOC",
+        "category": "Security Operations Center",
+        "url": "https://github.com/limayeabhishek/SentinelSOC",
+        "summary": "Security Operations Center (SOC) framework and integration scripts designed to automate alert triaging, streamline detection rule deployments, and manage incident response workflows."
+      },
+      {
+        "name": "SmartDeck",
+        "category": "Digital Forensics Orchestration",
+        "url": "https://github.com/limayeabhishek/SmartDeck",
+        "summary": "Open-source digital forensics orchestration tool for automating evidence acquisition across endpoints, maintaining reproducible audit trails, and accelerating triage."
+      },
+      {
+        "name": "Abhishek-cyber-lab",
+        "category": "Research & Penetration Testing",
+        "url": "https://github.com/limayeabhishek/Abhishek-cyber-lab",
+        "summary": "A collection of hands-on cybersecurity lab environments, network topologies, vulnerability assessments, and defensive walkthroughs."
+      }
+    ],
+    "philosophy": [
+      "Evidence-Driven Security: Claims must be backed by reproducible execution output, cryptographic hashes, or forensic packet captures.",
+      "Read-Only Principle: Forensic investigation must preserve the untouched state of original media.",
+      "Honest Scope: Real security engineers acknowledge tool limitations, avoid security through obscurity, and state boundaries clearly."
+    ],
+    "boundaryNotice": "Ultron has full knowledge of Abhishek's verified public projects, technical skillsets, and professional portfolio. Ultron does not speculate on unverified credentials, undisclosed private details, or unlisted employers."
+  }
+}

@@ -261,15 +261,15 @@
             <hr style="border:0; border-top:1px solid #333; margin: 1.5rem 0;">
 
             <div class="tab-bar">
-                <button class="tab-btn active" onclick="switchTab('file')">📁 File Input</button>
-                <button class="tab-btn" onclick="switchTab('text')">📄 Text Input</button>
+                <button class="tab-btn active" onclick="switchTab('file')">File Input</button>
+                <button class="tab-btn" onclick="switchTab('text')">Text Input</button>
             </div>
 
             <!-- File Tab -->
             <div id="file-tab" class="tab-pane active">
                 <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-                    <div class="drop-zone-icon">⤓</div>
-                    <div class="drop-zone-text">Drag & drop any file here, or click to browse</div>
+                    <div class="drop-zone-icon" style="font-size: 1.8rem; letter-spacing: 2px;">INPUT</div>
+                    <div class="drop-zone-text">Drag and drop any file here, or click to browse</div>
                     <div class="drop-zone-subtext">Runs 100% in-browser via Web Crypto API. File is never uploaded.</div>
                 </div>
                 <input type="file" id="file-input" style="display: none;" onchange="handleFileSelect(event)">
@@ -340,7 +340,7 @@
                 </div>
             </div>
 
-            <p class="privacy-note">🔒 100% Client-Side Privacy: All cryptographic hashing is computed locally in memory via the browser Web Crypto API. No files or text are ever transmitted to any server.</p>
+            <p class="privacy-note">Security Notice: 100% Client-Side Privacy: All cryptographic hashing is computed locally in memory via the browser Web Crypto API. No files or text are ever transmitted to any server.</p>
         </div>
     </main>
 
@@ -519,9 +519,9 @@
             }
 
             if (matchedAlgo) {
-                statusDiv.innerHTML = `<span class="status-badge status-match">✓ INTEGRITY VERIFIED — Matches ${matchedAlgo}</span>`;
+                statusDiv.innerHTML = `<span class="status-badge status-match">[MATCH] INTEGRITY VERIFIED — Matches ${matchedAlgo}</span>`;
             } else if (currentHashes.sha256) {
-                statusDiv.innerHTML = `<span class="status-badge status-mismatch">✗ NO MATCH — Expected hash does not match any generated algorithms</span>`;
+                statusDiv.innerHTML = `<span class="status-badge status-mismatch">[MISMATCH] NO MATCH — Expected hash does not match any generated algorithms</span>`;
             }
         }
 

@@ -245,7 +245,7 @@
                 </div>
             </div>
 
-            <p class="privacy-note">🔒 100% Self-Contained & Offline: All parsing, entropy mathematics, classification, and dork syntheses execute strictly inside your local browser memory. No external API requests, cookies, or telemetry are transmitted.</p>
+            <p class="privacy-note">Security Notice: 100% Self-Contained & Offline: All parsing, entropy mathematics, classification, and dork syntheses execute strictly inside your local browser memory. No external API requests, cookies, or telemetry are transmitted.</p>
         </div>
     </main>
 
@@ -383,7 +383,7 @@
                         'Standard': 'RFC 5322 Compliant Format',
                         'Username (Local Part)': user,
                         'Domain (Mail Host)': domain,
-                        'Disposable / Burner': isDisposable ? '<span class="badge-warning">⚠ HIGH RISK: Temporary Burner Provider</span>' : '<span class="badge-safe">✓ Standard Domain</span>',
+                        'Disposable / Burner': isDisposable ? '<span class="badge-warning">[HIGH RISK] Temporary Burner Provider</span>' : '<span class="badge-safe">[PASS] Standard Domain</span>',
                         'Provider Classification': providerType,
                         'Username Entropy': userEntropy > 3.4 ? `<span class="badge-warning">${userEntropy} bits (High / Machine-generated)</span>` : `${userEntropy} bits (Human readable)`
                     },
@@ -452,8 +452,8 @@
                             'Path & Resource': u.pathname,
                             'Query Parameters': u.search || 'None',
                             'Hostname Entropy': domainEntropy > 3.6 ? `<span class="badge-warning">${domainEntropy} (Potential DGA/Botnet)</span>` : `${domainEntropy} (Normal)`,
-                            'Homograph / IDN Check': hasHomograph ? '<span class="badge-warning">⚠ NON-ASCII DETECTED (Homograph spoof risk)</span>' : '<span class="badge-safe">✓ Clean ASCII Hostname</span>',
-                            'Heuristic Keywords': hasSuspiciousKw ? '<span class="badge-warning">⚠ Phishing / Credential-harvesting keywords found</span>' : '<span class="badge-safe">✓ Standard URL</span>'
+                            'Homograph / IDN Check': hasHomograph ? '<span class="badge-warning">[WARNING] NON-ASCII DETECTED (Homograph spoof risk)</span>' : '<span class="badge-safe">[PASS] Clean ASCII Hostname</span>',
+                            'Heuristic Keywords': hasSuspiciousKw ? '<span class="badge-warning">[WARNING] Phishing / Credential-harvesting keywords found</span>' : '<span class="badge-safe">[PASS] Standard URL</span>'
                         },
                         dorks: [
                             { query: `inurl:"${u.hostname}"` },
@@ -479,7 +479,7 @@
                         'Second-Level Domain (SLD)': sld,
                         'Subdomain Depth': parts.length > 2 ? `${parts.length - 2} levels` : 'Apex / Root Domain',
                         'SLD Shannon Entropy': entropy > 3.6 ? `<span class="badge-warning">${entropy} bits (Suspicious DGA Anomaly)</span>` : `${entropy} bits (Natural vocabulary)`,
-                        'Homograph Phishing Check': hasHomograph ? '<span class="badge-warning">⚠ Unicode Lookalike Characters Found</span>' : '<span class="badge-safe">✓ Clean Latin ASCII</span>',
+                        'Homograph Phishing Check': hasHomograph ? '<span class="badge-warning">[WARNING] Unicode Lookalike Characters Found</span>' : '<span class="badge-safe">[PASS] Clean Latin ASCII</span>',
                         'Passive DNS Query Target': `_dmarc.${input}, _spf.${input}`
                     },
                     dorks: [

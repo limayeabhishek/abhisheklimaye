@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Abhishek Limaye</title>
+    <script>
+      // Single Page App redirect for GitHub Pages
+      const pathSegments = window.location.pathname.split('/');
+      sessionStorage.redirect = window.location.href;
+      window.location.replace(window.location.origin + '/' + (pathSegments[1] ? pathSegments[1] + '/' : ''));
+    </script>
+  </head>
+  <body>
+    Redirecting...
+  </body>
+</html>
