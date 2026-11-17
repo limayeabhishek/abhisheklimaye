@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Detailed view of SECUREDRONE / UAV Security Lab by Abhishek Limaye.">
+    <meta name="keywords" content="Cybersecurity, UAV Security, Drone Forensics, MAVLink, Firmware Security, GNSS Spoofing, Abhishek Limaye">
+    <title>SECUREDRONE (UAV Security Lab) - Abhishek Limaye</title>
+    <link rel="stylesheet" href="../style.css">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+    <style>
+        .post-container {
+            max-width: 800px;
+            margin: 100px auto;
+            padding: 2rem;
+        }
+        .post-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .post-header h1 {
+            margin: 0;
+            font-size: 2rem;
+            flex: 1;
+            min-width: 300px;
+        }
+        .github-btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid #fff;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }
+        .github-btn:hover {
+            background-color: #fff;
+            color: #000;
+        }
+        hr {
+            border: 0;
+            border-top: 1px solid #333;
+            margin: 2rem 0;
+        }
+        .post-content p {
+            margin-bottom: 1.5rem;
+            line-height: 1.8;
+            color: #ccc;
+        }
+        .post-content h2 {
+            font-size: 1.3rem;
+            margin: 2rem 0 1rem 0;
+            color: #fff;
+            border-bottom: 1px solid #222;
+            padding-bottom: 0.5rem;
+        }
+        .post-content ul {
+            margin-bottom: 1.5rem;
+            list-style: none;
+            padding-left: 0;
+        }
+        .post-content li {
+            margin-bottom: 0.75rem;
+            padding-left: 1.5rem;
+            position: relative;
+            color: #ccc;
+            line-height: 1.7;
+        }
+        .post-content li::before {
+            content: "•";
+            position: absolute;
+            left: 0;
+            color: #fff;
+        }
+        .post-content strong {
+            color: #fff;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 2rem;
+            color: #aaa;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-container">
+            <div class="name">ABHISHEK LIMAYE</div>
+            <nav>
+                <ul>
+                    <li><a href="../index.html">Home</a></li>
+                    <li><a href="../index.html#about">About</a></li>
+                    <li><a href="../index.html#toolkit">Toolkit</a></li>
+                    <li><a href="../index.html#projects">Projects</a></li>
+                    <li><a href="../index.html#thoughts">My Thoughts</a></li>
+                    <li><a href="../index.html#contact">Contact</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        <div class="post-container">
+            <a href="../index.html#projects" class="back-link">&larr; Back to Projects</a>
+            
+            <div class="post-header">
+                <h1>SECUREDRONE (UAV-Security-Lab)</h1>
+                <a href="https://github.com/limayeabhishek/UAV-Security-Lab" target="_blank" class="github-btn">View on GitHub</a>
+            </div>
+
+            <hr>
+
+            <article class="post-content">
+                <p>Open-source, empirical cybersecurity engineering platform designed for verifiable research into Unmanned Aerial Vehicle (UAV) systems, communication protocols, companion computers, flight-controller firmware, and cyber-physical navigation resilience.</p>
+
+                <p>The project provides a rigorous testing and vulnerability assessment environment combining software-in-the-loop (SITL) autopilot simulation, containerized Linux companion computers, production firmware reverse engineering, offline RF signal processing, and synthetic GNSS spoofing detection.</p>
+
+                <h2>Core Research Architecture</h2>
+                <ul>
+                    <li><strong>Stage 01 — Protocol Reconnaissance:</strong> Headless PX4 SITL orchestration, MAVLink v1/v2 frame parsing, endpoint identification, and baseline telemetry capture across simulated networks.</li>
+                    <li><strong>Stage 02 — MAVLink Security Engine:</strong> Custom assessment framework covering protocol parsing, MAVLink 2 cryptographic signature validation (HMAC-SHA256), replay attack resistance, and parameter trust-boundary auditing.</li>
+                    <li><strong>Stage 03 — Companion Computer Hardening:</strong> Security auditing of companion services, REST API authorization bypasses, privilege escalation surfaces, and serial link isolation.</li>
+                    <li><strong>Stage 04 — Firmware Reverse Engineering:</strong> Production autopilot binary analysis (.apj / .px4), container unpacking, CPU architecture validation (ARM Cortex-M7 / STM32F767), memory layout recovery, and Ghidra disassembly.</li>
+                    <li><strong>Stage 05 — RF & Cyber-Physical Resilience:</strong> Offline 2-GFSK IQ signal demodulation, link-layer framing extraction, synthetic GNSS anomaly generation, kinematic innovation (&chi;&sup2;) analysis, and failsafe transition verification.</li>
+                    <li><strong>Stage 06 — Threat Modeling & Remediation:</strong> End-to-end STRIDE threat modeling, CVSS v3.1/v4.0 scored vulnerability registry, defensive remediation guidelines, and automated regression test suites.</li>
+                </ul>
+
+                <h2>Key Deliverables & Artifacts</h2>
+                <ul>
+                    <li><strong>Technical Manual & Textbook:</strong> Exhaustive engineering guide covering protocol mathematics, memory maps, and step-by-step auditing methodologies.</li>
+                    <li><strong>Academic Research Report:</strong> 5-page publication-grade LaTeX technical report documenting empirical findings and defense-in-depth mitigations.</li>
+                    <li><strong>Empirical Evidence & Telemetry PCAPs:</strong> Over 3,700 captured baseline frames, cryptographic verification logs, and demodulation analysis plots.</li>
+                    <li><strong>Automated Test Suite:</strong> Comprehensive unit and regression test suite verifying protocol parsing, replay detection, and cryptographic validation.</li>
+                </ul>
+            </article>
+        </div>
+    </main>
+</body>
+</html>
