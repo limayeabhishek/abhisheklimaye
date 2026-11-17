@@ -382,7 +382,21 @@
 
         // Smart API endpoint caller
         async function fetchUltronApi(payload) {
-            // First attempt relative URL (works on Vercel deployment and when proxied)
+            // If running on local file or localhost, query local daemon directly
+            if (window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                try {
+                    const localRes = await fetch('http://localhost:3001/api/ultron/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (localRes.ok || localRes.status !== 404) {
+                        return localRes;
+                    }
+                } catch (_) {}
+            }
+
+            // On deployed domains (Vercel) or cloud hosting, query relative /api/ultron/chat
             try {
                 const res = await fetch('/api/ultron/chat', {
                     method: 'POST',
@@ -392,20 +406,14 @@
                 if (res.status !== 404) {
                     return res;
                 }
-            } catch (err) {
-                // If relative request fails on network level, continue to local fallback
-            }
+            } catch (err) {}
 
-            // If running locally on localhost, try direct port 3001
-            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') {
-                return await fetch('http://localhost:3001/api/ultron/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-            }
-
-            throw new Error('Neural gateway unreachable.');
+            // Final fallback to localhost
+            return await fetch('http://localhost:3001/api/ultron/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
         }
 
         function purgeMemory() {

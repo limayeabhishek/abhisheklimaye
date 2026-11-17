@@ -171,6 +171,21 @@ const Ultron = () => {
 
   // Smart API caller
   const callChatApi = async (payload) => {
+    // If on localhost or local file, query local daemon directly
+    if (window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      try {
+        const localRes = await fetch('http://localhost:3001/api/ultron/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (localRes.ok || localRes.status !== 404) {
+          return localRes;
+        }
+      } catch (_) {}
+    }
+
+    // On cloud hosting (Vercel), query relative /api/ultron/chat
     try {
       const res = await fetch('/api/ultron/chat', {
         method: 'POST',
@@ -182,15 +197,11 @@ const Ultron = () => {
       }
     } catch (_) {}
 
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:') {
-      return await fetch('http://localhost:3001/api/ultron/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    }
-
-    throw new Error('API gateway offline');
+    return await fetch('http://localhost:3001/api/ultron/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
   };
 
   const handleSend = async (e) => {
