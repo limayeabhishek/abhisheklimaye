@@ -197,7 +197,9 @@ const AudioSync = () => {
   const [activeRoom, setActiveRoom] = useState('');
   const [role, setRole] = useState(null); // 'host' | 'listener'
   const [mode, setMode] = useState('youtube'); // 'youtube' | 'system' | 'mic'
+  const [joiningRoom, setJoiningRoom] = useState(false);
   const [needsSpeakerTap, setNeedsSpeakerTap] = useState(Boolean(urlRoom));
+  const [needsPlayTap, setNeedsPlayTap] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -244,6 +246,8 @@ const AudioSync = () => {
   const modeRef = useRef('youtube');
   const videoIdRef = useRef('');
   const isPlayingRef = useRef(false);
+  const applyListenerSyncRef = useRef(null);
+  const hostManualSyncBlockRef = useRef(false);
 
   useEffect(() => {
     nudgeOffsetMsRef.current = nudgeOffsetMs;
@@ -444,6 +448,7 @@ const AudioSync = () => {
     freezeTicksRef.current = 0;
     adBreakRef.current = false;
     setAdBreakActive(false);
+    setNeedsPlayTap(false);
     setPresenceList([]);
   }, [closeAllPeerConnections, peerId, stopLocalMedia]);
 
@@ -595,16 +600,42 @@ const AudioSync = () => {
           },
           events: {
             onReady: () => {
-              if (!cancelled) setYtReady(true);
+              if (cancelled) return;
+              setYtReady(true);
+              if (roleRef.current === 'listener' && latestSyncRef.current) {
+                applyListenerSyncRef.current?.(latestSyncRef.current, true);
+              }
             },
             onStateChange: (event) => {
-              if (cancelled || roleRef.current !== 'host') return;
+              if (cancelled) return;
+              if (roleRef.current === 'listener') {
+                if (event.data === YT.PlayerState.PLAYING) {
+                  setNeedsPlayTap(false);
+                  if (!adBreakRef.current) updatePresenceStatus('Synced');
+                }
+                return;
+              }
+              if (roleRef.current !== 'host') return;
               if (
                 event.data === YT.PlayerState.PLAYING ||
                 event.data === YT.PlayerState.PAUSED
               ) {
                 const nowPlaying = event.data === YT.PlayerState.PLAYING;
                 setIsPlaying(nowPlaying);
+                isPlayingRef.current = nowPlaying;
+                if (!hostManualSyncBlockRef.current && channelRef.current && videoIdRef.current) {
+                  const hostTime = ytPlayerRef.current?.getCurrentTime?.() || 0;
+                  channelRef.current.send({
+                    type: 'broadcast',
+                    event: 'yt-heartbeat',
+                    payload: {
+                      videoId: videoIdRef.current,
+                      hostTime,
+                      serverTimestamp: Date.now(),
+                      isPlaying: nowPlaying,
+                    },
+                  });
+                }
               }
             },
           },
@@ -620,7 +651,7 @@ const AudioSync = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeRoom, mode, videoId]);
+  }, [activeRoom, mode, videoId, updatePresenceStatus]);
 
   // Apply host YouTube sync message on listener
   const applyListenerSync = useCallback(
@@ -650,8 +681,17 @@ const AudioSync = () => {
         if (payload.isPlaying) {
           player.playVideo();
           updatePresenceStatus(adBreakRef.current ? 'Ad Break' : 'Synced');
+          setTimeout(() => {
+            const st = ytPlayerRef.current?.getPlayerState?.();
+            const ytPlaying = window.YT?.PlayerState?.PLAYING ?? 1;
+            const ytBuffering = window.YT?.PlayerState?.BUFFERING ?? 3;
+            if (st !== undefined && st !== ytPlaying && st !== ytBuffering) {
+              setNeedsPlayTap(true);
+            }
+          }, 900);
         } else {
           player.pauseVideo();
+          setNeedsPlayTap(false);
           updatePresenceStatus('Paused');
         }
       };
@@ -670,6 +710,10 @@ const AudioSync = () => {
     },
     [getServerNow, updatePresenceStatus]
   );
+
+  useEffect(() => {
+    applyListenerSyncRef.current = applyListenerSync;
+  }, [applyListenerSync]);
 
   // Host 5-second heartbeat loop (YouTube mode)
   useEffect(() => {
@@ -788,6 +832,7 @@ const AudioSync = () => {
 
       cleanupRoomResources();
       setErrorMessage('');
+      setJoiningRoom(true);
       setStatusMessage(`Connecting to ${roomCode}...`);
 
       await ensureAudioContext();
@@ -830,11 +875,31 @@ const AudioSync = () => {
         if (payload?.toPeerId !== peerId) return;
         const rtt = Date.now() - payload.clientSentAt;
         clockOffsetMsRef.current = payload.hostNow + rtt / 2 - Date.now();
+        if (roleRef.current === 'listener' && !latestSyncRef.current && !remoteAudioActive) {
+          updatePresenceStatus('Standby');
+        }
+      });
+
+      channel.on('broadcast', { event: 'host-ready' }, () => {
+        if (roleRef.current !== 'listener') return;
+        channel.send({
+          type: 'broadcast',
+          event: 'clock-ping',
+          payload: { fromPeerId: peerId, clientSentAt: Date.now() },
+        });
+        channel.send({
+          type: 'broadcast',
+          event: 'peer-join',
+          payload: { peerId, displayName },
+        });
       });
 
       channel.on('broadcast', { event: 'mode-change' }, ({ payload }) => {
         if (payload?.mode) {
           setMode(payload.mode);
+          if (roleRef.current === 'listener') {
+            updatePresenceStatus(payload.mode === 'youtube' ? 'Standby' : 'Waiting Stream');
+          }
         }
       });
 
@@ -964,8 +1029,21 @@ const AudioSync = () => {
         }
       });
 
+      let subscribed = false;
+      const joinTimeout = setTimeout(() => {
+        if (!subscribed) {
+          setJoiningRoom(false);
+          setErrorMessage('Connection to room timed out. Please check your connection and try again.');
+        }
+      }, 10000);
+
       channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
+          subscribed = true;
+          clearTimeout(joinTimeout);
+          roleRef.current = nextRole;
+          activeRoomRef.current = roomCode;
+          setJoiningRoom(false);
           setActiveRoom(roomCode);
           setRole(nextRole);
           setNeedsSpeakerTap(false);
@@ -980,11 +1058,17 @@ const AudioSync = () => {
             peerId,
             displayName,
             role: nextRole,
-            status: nextRole === 'host' ? 'Synced' : 'Connecting',
+            status: nextRole === 'host' ? 'Synced' : 'Standby',
             joinedAt: Date.now(),
           });
 
-          if (nextRole === 'listener') {
+          if (nextRole === 'host') {
+            channel.send({
+              type: 'broadcast',
+              event: 'host-ready',
+              payload: { peerId },
+            });
+          } else {
             channel.send({
               type: 'broadcast',
               event: 'clock-ping',
@@ -996,7 +1080,9 @@ const AudioSync = () => {
               payload: { peerId, displayName },
             });
           }
-        } else if (status === 'CHANNEL_ERROR') {
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          clearTimeout(joinTimeout);
+          setJoiningRoom(false);
           setErrorMessage('Failed to connect to Supabase Realtime room channel.');
         }
       });
@@ -1009,6 +1095,7 @@ const AudioSync = () => {
       ensureAudioContext,
       getServerNow,
       peerId,
+      remoteAudioActive,
       requestWakeLock,
       sendOfferToPeer,
       setSearchParams,
@@ -1033,6 +1120,9 @@ const AudioSync = () => {
 
   const handleLeaveRoom = () => {
     cleanupRoomResources();
+    roleRef.current = null;
+    activeRoomRef.current = '';
+    setJoiningRoom(false);
     setActiveRoom('');
     setRole(null);
     setVideoId('');
@@ -1090,6 +1180,7 @@ const AudioSync = () => {
     }
     scheduledActionTimeoutRef.current = setTimeout(() => {
       if (!ytPlayerRef.current) return;
+      hostManualSyncBlockRef.current = true;
       if (explicitTime !== undefined) {
         ytPlayerRef.current.seekTo?.(explicitTime, true);
       }
@@ -1098,6 +1189,9 @@ const AudioSync = () => {
       } else {
         ytPlayerRef.current.pauseVideo?.();
       }
+      setTimeout(() => {
+        hostManualSyncBlockRef.current = false;
+      }, 600);
     }, 1500);
   };
 
@@ -1300,9 +1394,10 @@ const AudioSync = () => {
             <button
               type="button"
               onClick={handleJoinSpeaker}
+              disabled={joiningRoom}
               className="btn tool-btn audiosync-primary-btn"
             >
-              Tap to Join as Speaker
+              {joiningRoom ? 'Connecting to Room...' : 'Tap to Join as Speaker'}
             </button>
           </div>
 
@@ -1318,9 +1413,10 @@ const AudioSync = () => {
             <button
               type="button"
               onClick={handleCreateRoom}
+              disabled={joiningRoom}
               className="btn tool-btn"
             >
-              Create AudioSync Room
+              {joiningRoom ? 'Creating Room...' : 'Create AudioSync Room'}
             </button>
           </div>
         </div>
@@ -1471,6 +1567,26 @@ const AudioSync = () => {
                 </div>
               )}
 
+              {role === 'listener' && needsPlayTap && (
+                <div style={{ marginTop: '1rem' }}>
+                  <button
+                    type="button"
+                    className="btn tool-btn audiosync-primary-btn"
+                    onClick={() => {
+                      setNeedsPlayTap(false);
+                      if (latestSyncRef.current) {
+                        applyListenerSync(latestSyncRef.current, true);
+                      } else {
+                        ytPlayerRef.current?.playVideo?.();
+                      }
+                    }}
+                  >
+                    <Play size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                    Tap to Start Synced Playback
+                  </button>
+                </div>
+              )}
+
               <div className="audiosync-yt-stage">
                 {videoId ? (
                   <div id={YOUTUBE_CONTAINER_ID} className="audiosync-yt-frame" />
@@ -1478,7 +1594,9 @@ const AudioSync = () => {
                   <div className="audiosync-yt-placeholder">
                     {role === 'host'
                       ? 'Load a YouTube video above to begin synchronized multi-device playback.'
-                      : 'Waiting for host to load a YouTube video...'}
+                      : presenceList.some((d) => d.role === 'host')
+                        ? 'Connected to host. Waiting for host to load a YouTube video...'
+                        : `Connected to ${activeRoom}. Waiting for host to join this room...`}
                   </div>
                 )}
               </div>
