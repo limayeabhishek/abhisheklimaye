@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Search, Shield, Globe, Mail, Server, User, Download, 
   CheckCircle2, AlertCircle, ExternalLink, GitBranch, 
@@ -31,7 +32,7 @@ const runClientSideRecon = async (target, type) => {
         });
         relationships.push({ from: 'username:' + target, to: 'github:' + target, explanation: 'Verified live developer account.' });
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
     try {
       const devRes = await fetch('https://dev.to/api/users/by_username?url=' + encodeURIComponent(target));
@@ -49,7 +50,7 @@ const runClientSideRecon = async (target, type) => {
           relationships.push({ from: 'username:' + target, to: 'devto:' + target, explanation: 'Verified tech publishing profile.' });
         }
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
     try {
       const hnRes = await fetch('https://hacker-news.firebaseio.com/v0/user/' + encodeURIComponent(target) + '.json');
@@ -66,7 +67,7 @@ const runClientSideRecon = async (target, type) => {
           });
         }
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
     const platforms = [
       { name: 'GitLab', url: 'https://gitlab.com/' + target },
@@ -98,7 +99,7 @@ const runClientSideRecon = async (target, type) => {
       source: 'Email Syntax & Domain Core',
       platform: 'Email Standard',
       confidence: 'Confirmed',
-      observation: 'RFC 5322 syntax valid. Account handle: \"' + parts[0] + '\", Mail Domain: \"' + domain + '\". Disposable Mail Status: ' + (isDisposable ? 'DETECTED DISPOSABLE (HIGH RISK)' : 'Standard Domain') + '.',
+      observation: 'RFC 5322 syntax valid. Account handle: "' + parts[0] + '", Mail Domain: "' + domain + '". Disposable Mail Status: ' + (isDisposable ? 'DETECTED DISPOSABLE (HIGH RISK)' : 'Standard Domain') + '.',
       sourceUrl: 'https://' + domain,
       collectionMethod: 'RFC 5322 Parser'
     });
@@ -118,7 +119,7 @@ const runClientSideRecon = async (target, type) => {
         });
         relationships.push({ from: target, to: domain, explanation: 'Resolves to active mail exchange servers.' });
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
     try {
       const txtRes = await fetch('https://dns.google/resolve?name=' + encodeURIComponent(domain) + '&type=TXT');
@@ -136,7 +137,7 @@ const runClientSideRecon = async (target, type) => {
           });
         }
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
   } else if (type === 'domain') {
     sourcesReferenced.push('Google DNS-over-HTTPS', 'crt.sh Certificate Transparency');
@@ -150,12 +151,12 @@ const runClientSideRecon = async (target, type) => {
           source: 'DNS IPv4 Resolution (DoH)',
           platform: 'DNS Zone',
           confidence: 'Confirmed',
-          observation: 'Host \"' + target + '\" resolves to IPv4 addresses: ' + ips + '.',
+          observation: 'Host "' + target + '" resolves to IPv4 addresses: ' + ips + '.',
           sourceUrl: 'https://' + target,
           collectionMethod: 'DNS-over-HTTPS'
         });
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
     try {
       const crtRes = await fetch('https://crt.sh/?q=' + encodeURIComponent(target) + '&output=json');
@@ -173,7 +174,7 @@ const runClientSideRecon = async (target, type) => {
           });
         }
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
   } else if (type === 'ip') {
     sourcesReferenced.push('Google DNS-over-HTTPS PTR', 'IP Geolocation API');
@@ -191,7 +192,7 @@ const runClientSideRecon = async (target, type) => {
           collectionMethod: 'FreeIPApi Service'
         });
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
     possibleFindings.push({
       source: 'Threat Intelligence Feeds',
@@ -208,7 +209,7 @@ const runClientSideRecon = async (target, type) => {
       source: 'Public Identity Index',
       platform: 'Subject Reconnaissance',
       confidence: 'Confirmed',
-      observation: 'Reconnaissance record initialized for \"' + target + '\" under lawful, passive, and consent-based parameters.',
+      observation: 'Reconnaissance record initialized for "' + target + '" under lawful, passive, and consent-based parameters.',
       sourceUrl: '#',
       collectionMethod: 'Public Index Aggregator'
     });
@@ -220,7 +221,7 @@ const runClientSideRecon = async (target, type) => {
     target: target,
     type: type,
     engine: 'Client-Side Browser Reconnaissance',
-    executiveSummary: 'Reconnaissance operation completed for ' + type.toUpperCase() + ' target \"' + target + '\" via autonomous client-side reconnaissance engine. Discovered ' + confirmedFindings.length + ' confirmed findings and ' + possibleFindings.length + ' indexed platform references.',
+    executiveSummary: 'Reconnaissance operation completed for ' + type.toUpperCase() + ' target "' + target + '" via autonomous client-side reconnaissance engine. Discovered ' + confirmedFindings.length + ' confirmed findings and ' + possibleFindings.length + ' indexed platform references.',
     metrics: {
       riskScore: confirmedFindings.length > 2 ? 35 : 15,
       riskRating: 'LOW-TO-MODERATE',
@@ -276,7 +277,7 @@ const OsintPlatform = () => {
         if (res.status !== 404 && res.ok) {
           data = await res.json();
         }
-      } catch (_) {}
+      } catch { /* fallback */ }
 
       // 2. Try direct localhost:3001 if on localhost
       if (!data && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:')) {
@@ -289,7 +290,7 @@ const OsintPlatform = () => {
           if (res.ok) {
             data = await res.json();
           }
-        } catch (_) {}
+        } catch { /* fallback */ }
       }
 
       // 3. If backend is unavailable, run client-side reconnaissance
@@ -314,7 +315,7 @@ const OsintPlatform = () => {
       setHistory(updatedHistory);
       try {
         localStorage.setItem('osint_investigation_history', JSON.stringify(updatedHistory));
-      } catch (_) {}
+      } catch { /* fallback */ }
 
     } catch (err) {
       setError(err.message || 'Investigation failed.');
@@ -333,7 +334,7 @@ const OsintPlatform = () => {
     setHistory([]);
     try {
       localStorage.removeItem('osint_investigation_history');
-    } catch (_) {}
+    } catch { /* fallback */ }
   };
 
   const toggleExpand = (idx) => {
@@ -394,6 +395,9 @@ const OsintPlatform = () => {
 
   return (
     <div className="osint-platform-container">
+      <Link to="/#toolkit" className="back-link">
+        &larr; Back to Toolkit
+      </Link>
       {/* Top Banner */}
       <div className="osint-workstation-header">
         <div className="osint-badge-line">

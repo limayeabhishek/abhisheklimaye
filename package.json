@@ -2,11 +2,22 @@
   "name": "abhishek-limaye-portfolio",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "dev": "cd react-portfolio && npm run dev",
+    "build": "cd react-portfolio && npm run build",
+    "lint": "cd react-portfolio && npm run lint",
+    "typecheck": "tsc --noEmit -p tsconfig.api.json"
+  },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",
+    "@supabase/supabase-js": "^2.50.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
   }
 }

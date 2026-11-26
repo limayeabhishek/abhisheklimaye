@@ -1,5 +1,11 @@
 # Dependencies
 /node_modules
+/react-portfolio/node_modules
+/server/node_modules
+
+# Build outputs
+/react-portfolio/dist
+/dist
 
 # Logs
 logs
@@ -24,6 +30,8 @@ coverage
 
 # dotenv environment variables file
 .env
+.env.local
+.env*.local
 .env.test
 
 # Vercel

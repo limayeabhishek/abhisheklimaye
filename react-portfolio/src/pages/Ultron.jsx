@@ -160,7 +160,7 @@ const Ultron = () => {
             setModelName(data.features.ultron.model);
           }
         }
-      } catch (_) {}
+      } catch { /* fallback */ }
     };
     checkHealth();
   }, []);
@@ -182,7 +182,7 @@ const Ultron = () => {
         if (localRes.ok || localRes.status !== 404) {
           return localRes;
         }
-      } catch (_) {}
+      } catch { /* fallback */ }
     }
 
     // On cloud hosting (Vercel), query relative /api/ultron/chat
@@ -195,7 +195,7 @@ const Ultron = () => {
       if (res.status !== 404) {
         return res;
       }
-    } catch (_) {}
+    } catch { /* fallback */ }
 
     return await fetch('http://localhost:3001/api/ultron/chat', {
       method: 'POST',
@@ -250,7 +250,7 @@ const Ultron = () => {
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
-    } catch (err) {
+    } catch {
       // Graceful offline standby response instead of raw socket error
       const replyTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setMessages(prev => [

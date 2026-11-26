@@ -1,30 +1,101 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Lock } from 'lucide-react';
+import { useAuth } from '../context/useAuth';
+import { supabase } from '../lib/supabase';
+import {
+  FALLBACK_PUBLIC_THOUGHT,
+  LOCKED_PRIVATE_THOUGHT_PREVIEW,
+} from '../data/portfolioData';
 
 const Thoughts = () => {
+  const { isActiveUser } = useAuth();
+  const navigate = useNavigate();
+  const [thoughts, setThoughts] = useState([
+    FALLBACK_PUBLIC_THOUGHT,
+    LOCKED_PRIVATE_THOUGHT_PREVIEW,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadThoughts = async () => {
+      if (!supabase) return;
+      try {
+        const { data, error } = await supabase
+          .from('thoughts')
+          .select('id, slug, title, excerpt, published_at, is_private')
+          .order('published_at', { ascending: false });
+
+        if (!cancelled && !error && Array.isArray(data) && data.length > 0) {
+          const hasPrivate = data.some((t) => t.is_private);
+          setThoughts(hasPrivate ? data : [...data, LOCKED_PRIVATE_THOUGHT_PREVIEW]);
+        }
+      } catch (err) {
+        console.error('Error loading thoughts:', err);
+      }
+    };
+    loadThoughts();
+    return () => {
+      cancelled = true;
+    };
+  }, [isActiveUser]);
+
   return (
     <div className="page-container">
+      <Link to="/" className="back-link">
+        &larr; Back to Portfolio
+      </Link>
       <h2 className="page-title">My Thoughts</h2>
 
-      <article className="thought-article">
-        <h3>The Importance of Evidence Integrity in Digital Forensics</h3>
-        <p>
-          In any forensic discipline, the integrity of evidence is paramount. In digital forensics, this principle is both more critical and more challenging to uphold. Unlike a physical object, digital data can be altered, copied, or deleted without leaving obvious traces. An investigator's primary duty is to ensure that the process of examining digital evidence does not modify the original data. This is achieved through the use of write-blockers (hardware or software that prevent write operations to a storage device) and the creation of bit-for-bit forensic images. Every analytical step must be performed on a verified copy, leaving the original source pristine. Failure to maintain this integrity invalidates any findings and undermines the entire investigative process.
-        </p>
-      </article>
-
-      <article className="thought-article">
-        <h3>Why Read-Only Analysis Matters</h3>
-        <p>
-          Read-only analysis is a non-negotiable tenet of sound forensic practice. Interacting with a live system or a piece of evidence in a way that could change its state—even something as simple as opening a file—can have cascading effects. File access times may be updated, metadata can be altered, and temporary files may be created or deleted. These changes, however small, contaminate the evidence pool. A forensic examination must be a passive observation of the data as it existed at the time of collection. By working on a forensic image with write-blocking capabilities enabled, an analyst can guarantee that their actions are not introducing new variables. This disciplined, read-only approach ensures that any conclusions drawn are based solely on the original state of the evidence.
-        </p>
-      </article>
-
-      <article className="thought-article">
-        <h3>Limitations of Automated Forensic Tools</h3>
-        <p>
-          Automated forensic tools are indispensable for processing vast quantities of data quickly. They can parse complex file systems, carve out deleted files, and flag known contraband based on hash signatures. However, over-reliance on automation can lead to critical errors. A tool is only as effective as its underlying algorithms and the knowledge of the analyst operating it. Automated tools may fail to parse non-standard data structures, misinterpret context, or generate false positives. The output of any tool should be considered a starting point for analysis, not a final conclusion. It is the investigator's responsibility to manually verify the tool's findings, understand its limitations, and be able to explain how the evidence supports their conclusions independent of the software that processed it.
-        </p>
-      </article>
+      <div className="thoughts-grid">
+        {thoughts.map((thought) => {
+          const locked = Boolean(thought.is_private && !isActiveUser);
+          return (
+            <Link
+              key={thought.slug}
+              to={
+                locked
+                  ? `/login?redirect=${encodeURIComponent(`/thoughts/${thought.slug}`)}`
+                  : `/thoughts/${thought.slug}`
+              }
+              onClick={(e) => {
+                if (locked) {
+                  e.preventDefault();
+                  navigate(`/login?redirect=${encodeURIComponent(`/thoughts/${thought.slug}`)}`);
+                }
+              }}
+              className={`thought-card-link ${locked ? 'is-locked' : ''}`}
+            >
+              <div className={`thought-item ${locked ? 'locked-card' : ''}`}>
+                <div className="thought-item-header">
+                  <h3>{thought.title}</h3>
+                  {thought.is_private && (
+                    <span className="members-only-pill">Members Only</span>
+                  )}
+                </div>
+                <p className="thought-date">
+                  {thought.published_at
+                    ? new Date(`${thought.published_at}T00:00:00`).toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric',
+                      })
+                    : ''}
+                </p>
+                <p className="excerpt">{thought.excerpt}</p>
+                {locked && (
+                  <div className="lock-overlay">
+                    <span className="lock-badge">
+                      <Lock size={14} strokeWidth={2} />
+                      <span>Members Only &mdash; Login to Read</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 };
