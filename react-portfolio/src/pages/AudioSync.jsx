@@ -196,10 +196,11 @@ const AudioSync = () => {
   const [roomInput, setRoomInput] = useState(urlRoom);
   const [activeRoom, setActiveRoom] = useState('');
   const [role, setRole] = useState(null); // 'host' | 'listener'
-  const [mode, setMode] = useState('youtube'); // 'youtube' | 'system' | 'mic'
+  const [mode, setMode] = useState('system'); // 'system' | 'mic' | 'youtube'
   const [joiningRoom, setJoiningRoom] = useState(false);
   const [needsSpeakerTap, setNeedsSpeakerTap] = useState(Boolean(urlRoom));
   const [needsPlayTap, setNeedsPlayTap] = useState(false);
+  const [needsAudioUnlock, setNeedsAudioUnlock] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -226,11 +227,15 @@ const AudioSync = () => {
   const audioCtxRef = useRef(null);
   const wakeLockRef = useRef(null);
   const peerConnectionsRef = useRef(new Map());
+  const pendingIceCandidatesRef = useRef(new Map());
   const localStreamRef = useRef(null);
   const remoteStreamsRef = useRef(new Map());
+  const sourceNodeRef = useRef(null);
   const delayNodeRef = useRef(null);
   const gainNodeRef = useRef(null);
   const remoteAudioElRef = useRef(null);
+  const webrtcDelayMsRef = useRef(0);
+  const listenerMutedRef = useRef(false);
 
   const heartbeatIntervalRef = useRef(null);
   const adCheckIntervalRef = useRef(null);
@@ -243,11 +248,19 @@ const AudioSync = () => {
   const nudgeOffsetMsRef = useRef(0);
   const activeRoomRef = useRef('');
   const roleRef = useRef(null);
-  const modeRef = useRef('youtube');
+  const modeRef = useRef('system');
   const videoIdRef = useRef('');
   const isPlayingRef = useRef(false);
   const applyListenerSyncRef = useRef(null);
   const hostManualSyncBlockRef = useRef(false);
+
+  useEffect(() => {
+    webrtcDelayMsRef.current = webrtcDelayMs;
+  }, [webrtcDelayMs]);
+
+  useEffect(() => {
+    listenerMutedRef.current = listenerMuted;
+  }, [listenerMuted]);
 
   useEffect(() => {
     nudgeOffsetMsRef.current = nudgeOffsetMs;
@@ -374,16 +387,29 @@ const AudioSync = () => {
       }
     });
     peerConnectionsRef.current.clear();
+    pendingIceCandidatesRef.current.clear();
 
     remoteStreamsRef.current.forEach((stream) => {
       stream.getTracks().forEach((track) => track.stop());
     });
     remoteStreamsRef.current.clear();
 
+    try {
+      sourceNodeRef.current?.disconnect();
+      delayNodeRef.current?.disconnect();
+      gainNodeRef.current?.disconnect();
+    } catch {
+      // Ignore disconnect errors
+    }
+    sourceNodeRef.current = null;
+    delayNodeRef.current = null;
+    gainNodeRef.current = null;
+
     if (remoteAudioElRef.current) {
       remoteAudioElRef.current.srcObject = null;
     }
     setRemoteAudioActive(false);
+    setNeedsAudioUnlock(false);
   }, []);
 
   // Strict comprehensive cleanup
@@ -449,6 +475,7 @@ const AudioSync = () => {
     adBreakRef.current = false;
     setAdBreakActive(false);
     setNeedsPlayTap(false);
+    setNeedsAudioUnlock(false);
     setPresenceList([]);
   }, [closeAllPeerConnections, peerId, stopLocalMedia]);
 
@@ -458,48 +485,104 @@ const AudioSync = () => {
     };
   }, [cleanupRoomResources]);
 
-  // Attach remote WebRTC audio stream through Web Audio DelayNode + muted <audio> element
+  const configureAudioGraphForStream = useCallback(
+    async (stream, delayMs, muted) => {
+      const audioEl = remoteAudioElRef.current;
+      if (audioEl) {
+        audioEl.srcObject = stream;
+        // Direct playback when delay is 0ms works cleanly across iOS/Android/Desktop;
+        // when delay > 0ms, mute the <audio> element (keeping it active for Chrome WebRTC) and route via DelayNode.
+        audioEl.muted = delayMs > 0 ? true : muted;
+        try {
+          await audioEl.play();
+          setNeedsAudioUnlock(false);
+        } catch {
+          setNeedsAudioUnlock(true);
+        }
+      }
+
+      try {
+        sourceNodeRef.current?.disconnect();
+        delayNodeRef.current?.disconnect();
+        gainNodeRef.current?.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+      sourceNodeRef.current = null;
+      delayNodeRef.current = null;
+      gainNodeRef.current = null;
+
+      if (delayMs > 0) {
+        const ctx = await ensureAudioContext();
+        if (ctx) {
+          try {
+            const source = ctx.createMediaStreamSource(stream);
+            const delayNode = ctx.createDelay(1.0);
+            delayNode.delayTime.setValueAtTime(delayMs / 1000, ctx.currentTime);
+            const gainNode = ctx.createGain();
+            gainNode.gain.setValueAtTime(muted ? 0 : 1, ctx.currentTime);
+
+            source.connect(delayNode);
+            delayNode.connect(gainNode);
+            gainNode.connect(ctx.destination);
+
+            sourceNodeRef.current = source;
+            delayNodeRef.current = delayNode;
+            gainNodeRef.current = gainNode;
+          } catch (err) {
+            console.error('Web Audio DelayNode routing error:', err);
+          }
+        }
+      }
+    },
+    [ensureAudioContext]
+  );
+
+  // Attach remote WebRTC audio stream
   const attachRemoteAudioStream = useCallback(
     async (stream, fromPeerId) => {
       remoteStreamsRef.current.set(fromPeerId, stream);
       setRemoteAudioActive(true);
-
-      // Attach to muted <audio> element for Chrome WebRTC-to-WebAudio compatibility
-      if (remoteAudioElRef.current) {
-        remoteAudioElRef.current.srcObject = stream;
-        remoteAudioElRef.current.muted = true;
-        remoteAudioElRef.current.play().catch(() => {});
-      }
-
-      const ctx = await ensureAudioContext();
-      if (!ctx) return;
-
-      try {
-        const source = ctx.createMediaStreamSource(stream);
-        const delayNode = ctx.createDelay(1.0);
-        delayNode.delayTime.setValueAtTime(webrtcDelayMs / 1000, ctx.currentTime);
-        const gainNode = ctx.createGain();
-        gainNode.gain.setValueAtTime(listenerMuted ? 0 : 1, ctx.currentTime);
-
-        source.connect(delayNode);
-        delayNode.connect(gainNode);
-        gainNode.connect(ctx.destination);
-
-        delayNodeRef.current = delayNode;
-        gainNodeRef.current = gainNode;
-        updatePresenceStatus('Synced');
-      } catch (err) {
-        console.error('Web Audio DelayNode routing error:', err);
-      }
+      await configureAudioGraphForStream(
+        stream,
+        webrtcDelayMsRef.current,
+        listenerMutedRef.current
+      );
+      updatePresenceStatus('Synced');
     },
-    [ensureAudioContext, listenerMuted, updatePresenceStatus, webrtcDelayMs]
+    [configureAudioGraphForStream, updatePresenceStatus]
   );
+
+  const flushPendingIceCandidates = useCallback(async (remotePeerId, pc) => {
+    const queued = pendingIceCandidatesRef.current.get(remotePeerId);
+    if (!queued || queued.length === 0) return;
+    pendingIceCandidatesRef.current.delete(remotePeerId);
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error('Error flushing ICE candidate:', err);
+      }
+    }
+  }, []);
 
   // Create or get RTCPeerConnection for a specific remote peer
   const createPeerConnection = useCallback(
-    (remotePeerId) => {
+    (remotePeerId, forceReset = false) => {
       const existing = peerConnectionsRef.current.get(remotePeerId);
-      if (existing) return existing;
+      if (existing && !forceReset) return existing;
+      if (existing && forceReset) {
+        try {
+          existing.ontrack = null;
+          existing.onicecandidate = null;
+          existing.onconnectionstatechange = null;
+          existing.close();
+        } catch {
+          // Ignore close errors
+        }
+        peerConnectionsRef.current.delete(remotePeerId);
+        pendingIceCandidatesRef.current.delete(remotePeerId);
+      }
 
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
 
@@ -518,7 +601,7 @@ const AudioSync = () => {
       };
 
       pc.ontrack = (event) => {
-        const [stream] = event.streams;
+        const stream = event.streams?.[0] || new MediaStream([event.track]);
         if (stream) {
           attachRemoteAudioStream(stream, remotePeerId);
         }
@@ -546,7 +629,7 @@ const AudioSync = () => {
     async (remotePeerId) => {
       if (!localStreamRef.current || !channelRef.current) return;
       try {
-        const pc = createPeerConnection(remotePeerId);
+        const pc = createPeerConnection(remotePeerId, true);
         const offer = await pc.createOffer({ offerToReceiveAudio: false });
         const mungedSdp = mungeOpusSdp(offer.sdp);
         await pc.setLocalDescription({ type: 'offer', sdp: mungedSdp });
@@ -558,6 +641,7 @@ const AudioSync = () => {
             fromPeerId: peerId,
             toPeerId: remotePeerId,
             sdp: pc.localDescription,
+            streamMode: modeRef.current,
           },
         });
       } catch (err) {
@@ -976,6 +1060,25 @@ const AudioSync = () => {
         }
       });
 
+      channel.on('broadcast', { event: 'stream-started' }, ({ payload }) => {
+        if (roleRef.current !== 'listener') return;
+        if (payload?.streamMode) {
+          setMode(payload.streamMode);
+        }
+        channel.send({
+          type: 'broadcast',
+          event: 'request-offer',
+          payload: { fromPeerId: peerId },
+        });
+      });
+
+      channel.on('broadcast', { event: 'request-offer' }, ({ payload }) => {
+        if (roleRef.current !== 'host' || !payload?.fromPeerId) return;
+        if (localStreamRef.current) {
+          sendOfferToPeer(payload.fromPeerId);
+        }
+      });
+
       channel.on('broadcast', { event: 'peer-leave' }, ({ payload }) => {
         if (!payload?.peerId) return;
         const pc = peerConnectionsRef.current.get(payload.peerId);
@@ -983,13 +1086,18 @@ const AudioSync = () => {
           pc.close();
           peerConnectionsRef.current.delete(payload.peerId);
         }
+        pendingIceCandidatesRef.current.delete(payload.peerId);
       });
 
       channel.on('broadcast', { event: 'offer' }, async ({ payload }) => {
         if (!payload || payload.toPeerId !== peerId) return;
         try {
-          const pc = createPeerConnection(payload.fromPeerId);
+          if (payload.streamMode) {
+            setMode(payload.streamMode);
+          }
+          const pc = createPeerConnection(payload.fromPeerId, true);
           await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          await flushPendingIceCandidates(payload.fromPeerId, pc);
           const answer = await pc.createAnswer();
           const mungedSdp = mungeOpusSdp(answer.sdp);
           await pc.setLocalDescription({ type: 'answer', sdp: mungedSdp });
@@ -1013,6 +1121,7 @@ const AudioSync = () => {
         if (!pc) return;
         try {
           await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          await flushPendingIceCandidates(payload.fromPeerId, pc);
         } catch (err) {
           console.error('Error applying WebRTC answer:', err);
         }
@@ -1021,7 +1130,12 @@ const AudioSync = () => {
       channel.on('broadcast', { event: 'ice-candidate' }, async ({ payload }) => {
         if (!payload || payload.toPeerId !== peerId || !payload.candidate) return;
         const pc = peerConnectionsRef.current.get(payload.fromPeerId);
-        if (!pc) return;
+        if (!pc || !pc.remoteDescription) {
+          const list = pendingIceCandidatesRef.current.get(payload.fromPeerId) || [];
+          list.push(payload.candidate);
+          pendingIceCandidatesRef.current.set(payload.fromPeerId, list);
+          return;
+        }
         try {
           await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
         } catch (err) {
@@ -1093,6 +1207,7 @@ const AudioSync = () => {
       createPeerConnection,
       displayName,
       ensureAudioContext,
+      flushPendingIceCandidates,
       getServerNow,
       peerId,
       remoteAudioActive,
@@ -1247,19 +1362,62 @@ const AudioSync = () => {
     });
   };
 
+  const getConnectedPeerIds = useCallback(() => {
+    const ids = new Set();
+    const state = channelRef.current?.presenceState?.() || {};
+    Object.values(state).forEach((entries) => {
+      entries.forEach((entry) => {
+        if (entry?.peerId && entry.peerId !== peerId) {
+          ids.add(entry.peerId);
+        }
+      });
+    });
+    return Array.from(ids);
+  }, [peerId]);
+
+  const broadcastLiveStreamToPeers = useCallback(
+    (streamMode) => {
+      const targetPeers = getConnectedPeerIds();
+      targetPeers.forEach((targetPeerId) => {
+        sendOfferToPeer(targetPeerId);
+      });
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'stream-started',
+        payload: { streamMode },
+      });
+    },
+    [getConnectedPeerIds, sendOfferToPeer]
+  );
+
   // Start WebRTC System Audio Broadcast (Discord Mode)
   const startSystemAudioBroadcast = async () => {
     setErrorMessage('');
+    if (typeof navigator?.mediaDevices?.getDisplayMedia !== 'function') {
+      setErrorMessage(
+        'Direct system/tab audio capture is not supported by this mobile browser. Switch to Phone Mic Relay or YouTube Link Sync.'
+      );
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: {
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+          },
           systemAudio: 'include',
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true,
+        });
+      }
 
       // Immediately stop video tracks so no video is transmitted or stored
       stream.getVideoTracks().forEach((track) => track.stop());
@@ -1267,7 +1425,7 @@ const AudioSync = () => {
       const audioTracks = stream.getAudioTracks();
       if (audioTracks.length === 0) {
         setErrorMessage(
-          'No system/tab audio track captured. Ensure "Share system audio" or "Share tab audio" is enabled in the browser prompt.'
+          'No audio track was captured. When sharing a tab or screen, make sure "Share tab audio" or "Share system audio" is toggled ON.'
         );
         return;
       }
@@ -1275,18 +1433,15 @@ const AudioSync = () => {
       stopLocalMedia();
       localStreamRef.current = new MediaStream(audioTracks);
       setLocalStreamActive(true);
+      updatePresenceStatus('Broadcasting');
 
       audioTracks[0].onended = () => {
         stopLocalMedia();
         closeAllPeerConnections();
+        updatePresenceStatus('Synced');
       };
 
-      // Broadcast WebRTC offers to all currently connected listeners
-      presenceList.forEach((peer) => {
-        if (peer.peerId && peer.peerId !== peerId) {
-          sendOfferToPeer(peer.peerId);
-        }
-      });
+      broadcastLiveStreamToPeers('system');
     } catch (err) {
       setErrorMessage(err?.message || 'Screen/system audio capture was cancelled or unsupported.');
     }
@@ -1307,12 +1462,9 @@ const AudioSync = () => {
       stopLocalMedia();
       localStreamRef.current = stream;
       setLocalStreamActive(true);
+      updatePresenceStatus('Broadcasting');
 
-      presenceList.forEach((peer) => {
-        if (peer.peerId && peer.peerId !== peerId) {
-          sendOfferToPeer(peer.peerId);
-        }
-      });
+      broadcastLiveStreamToPeers('mic');
     } catch (err) {
       setErrorMessage(err?.message || 'Microphone capture permission denied or unavailable.');
     }
@@ -1322,17 +1474,28 @@ const AudioSync = () => {
   const updateWebrtcDelay = (nextMs) => {
     const clamped = Math.max(0, Math.min(300, nextMs));
     setWebrtcDelayMs(clamped);
-    if (delayNodeRef.current && audioCtxRef.current) {
-      delayNodeRef.current.delayTime.setValueAtTime(
-        clamped / 1000,
-        audioCtxRef.current.currentTime
-      );
+    webrtcDelayMsRef.current = clamped;
+
+    const firstRemoteStream = remoteStreamsRef.current.values().next().value;
+    if (firstRemoteStream) {
+      if ((clamped > 0 && !delayNodeRef.current) || (clamped === 0 && delayNodeRef.current)) {
+        configureAudioGraphForStream(firstRemoteStream, clamped, listenerMutedRef.current);
+      } else if (delayNodeRef.current && audioCtxRef.current) {
+        delayNodeRef.current.delayTime.setValueAtTime(
+          clamped / 1000,
+          audioCtxRef.current.currentTime
+        );
+      }
     }
   };
 
   const toggleListenerMute = () => {
     const nextMuted = !listenerMuted;
     setListenerMuted(nextMuted);
+    listenerMutedRef.current = nextMuted;
+    if (remoteAudioElRef.current && webrtcDelayMsRef.current === 0) {
+      remoteAudioElRef.current.muted = nextMuted;
+    }
     if (gainNodeRef.current && audioCtxRef.current) {
       gainNodeRef.current.gain.setValueAtTime(
         nextMuted ? 0 : 1,
@@ -1511,17 +1674,8 @@ const AudioSync = () => {
             </div>
           </div>
 
-          {/* Mode Tabs */}
+          {/* Mode Tabs — Live Audio Capture first so host doesn't need to paste a YouTube URL */}
           <div className="tab-bar audiosync-mode-tabs">
-            <button
-              type="button"
-              className={`tab-btn ${mode === 'youtube' ? 'active' : ''}`}
-              onClick={() => (role === 'host' ? handleSelectMode('youtube') : null)}
-              disabled={role !== 'host' && mode !== 'youtube'}
-            >
-              <Tv size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-              YouTube Room Sync
-            </button>
             <button
               type="button"
               className={`tab-btn ${mode === 'system' ? 'active' : ''}`}
@@ -1529,7 +1683,7 @@ const AudioSync = () => {
               disabled={role !== 'host' && mode !== 'system'}
             >
               <Laptop size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-              System Audio (Discord Mode)
+              Live Audio Capture
             </button>
             <button
               type="button"
@@ -1539,6 +1693,15 @@ const AudioSync = () => {
             >
               <Mic size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
               Phone Mic Relay
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${mode === 'youtube' ? 'active' : ''}`}
+              onClick={() => (role === 'host' ? handleSelectMode('youtube') : null)}
+              disabled={role !== 'host' && mode !== 'youtube'}
+            >
+              <Tv size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+              YouTube Link Sync
             </button>
           </div>
 
@@ -1714,9 +1877,36 @@ const AudioSync = () => {
                   <h3>Live WebRTC Speaker Output</h3>
                   <p className="audiosync-panel-desc">
                     {remoteAudioActive
-                      ? 'Receiving live Opus audio stream routed through Web Audio DelayNode.'
-                      : 'Waiting for host to start live audio broadcast...'}
+                      ? webrtcDelayMs > 0
+                        ? `Receiving live Opus audio stream (${webrtcDelayMs}ms DelayNode active).`
+                        : 'Receiving live Opus audio stream directly from host.'
+                      : presenceList.some((d) => d.role === 'host')
+                        ? 'Connected to host. Waiting for host to click "Start System Audio Broadcast"...'
+                        : `Connected to ${activeRoom}. Waiting for host to join...`}
                   </p>
+
+                  {needsAudioUnlock && (
+                    <div style={{ marginBottom: '1rem' }}>
+                      <button
+                        type="button"
+                        className="btn tool-btn audiosync-primary-btn"
+                        onClick={async () => {
+                          await ensureAudioContext();
+                          const stream = remoteStreamsRef.current.values().next().value;
+                          if (stream) {
+                            await configureAudioGraphForStream(
+                              stream,
+                              webrtcDelayMsRef.current,
+                              listenerMutedRef.current
+                            );
+                          }
+                        }}
+                      >
+                        <Volume2 size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                        Tap to Enable Speaker Audio
+                      </button>
+                    </div>
+                  )}
 
                   <div className="audiosync-delay-control">
                     <label htmlFor="webrtc-delay-slider">
@@ -1770,11 +1960,11 @@ const AudioSync = () => {
                   </button>
                 </div>
               )}
-
-              {/* Hidden muted <audio> sink for Chrome WebRTC-to-WebAudio graph activation */}
-              <audio ref={remoteAudioElRef} autoPlay playsInline muted style={{ display: 'none' }} />
             </div>
           )}
+
+          {/* Always-mounted <audio> sink so ontrack never hits a null ref before mode switches */}
+          <audio ref={remoteAudioElRef} autoPlay playsInline style={{ display: 'none' }} />
         </div>
       )}
     </div>

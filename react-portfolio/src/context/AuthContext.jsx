@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { AuthContext, DISABLED_ACCOUNT_MESSAGE } from './useAuth';
 
@@ -8,12 +8,14 @@ export const AuthProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(isSupabaseConfigured);
   const [disabledNotice, setDisabledNotice] = useState('');
+  const currentUserIdRef = useRef(null);
 
   const clearDisabledNotice = useCallback(() => {
     setDisabledNotice('');
   }, []);
 
   const clearAuthState = useCallback(() => {
+    currentUserIdRef.current = null;
     setSession(null);
     setUser(null);
     setProfile(null);
@@ -43,6 +45,7 @@ export const AuthProvider = ({ children }) => {
         return null;
       }
 
+      currentUserIdRef.current = activeSession.user.id;
       setSession(activeSession);
       setUser(activeSession.user);
       setProfile(
@@ -98,14 +101,24 @@ export const AuthProvider = ({ children }) => {
 
     initAuth();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) return;
       if (!nextSession) {
         clearAuthState();
         setLoading(false);
         return;
       }
-      setLoading(true);
+
+      // Avoid unmounting active pages (e.g. AudioSync rooms) on tab-focus or token refresh
+      const isSameUser = currentUserIdRef.current === nextSession.user.id;
+      if (event === 'TOKEN_REFRESHED' && isSameUser) {
+        setSession(nextSession);
+        return;
+      }
+
+      if (!isSameUser) {
+        setLoading(true);
+      }
       fetchAndValidateProfile(nextSession).finally(() => {
         if (isMounted) setLoading(false);
       });
