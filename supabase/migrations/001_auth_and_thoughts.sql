@@ -146,6 +146,16 @@ CREATE POLICY "Only admins can delete thoughts"
   FOR DELETE
   USING (public.is_admin());
 
+-- Explicit table grants (RLS enforces row-level authorization)
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT SELECT, UPDATE ON public.profiles TO authenticated;
+GRANT ALL ON public.profiles TO service_role;
+GRANT SELECT ON public.thoughts TO anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.thoughts TO authenticated;
+GRANT ALL ON public.thoughts TO service_role;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_active_user() TO anon, authenticated, service_role;
+
 -- 6. Seed thoughts (idempotent)
 INSERT INTO public.thoughts (slug, title, excerpt, content, published_at, is_private)
 VALUES
