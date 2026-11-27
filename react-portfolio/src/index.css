@@ -2586,6 +2586,31 @@ a {
   border-bottom: 1px solid #222;
 }
 
+.audiosync-room-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 1rem;
+}
+
+.audiosync-room-switcher .btn {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 0.8rem;
+}
+
+.audiosync-join-code-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 0.75rem;
+}
+
+.audiosync-join-code-form .tool-input {
+  flex: 1;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+}
+
 .audiosync-yt-form .tool-input {
   flex: 1;
   min-width: 220px;

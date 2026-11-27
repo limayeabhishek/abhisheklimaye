@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   Radio,
@@ -10,19 +9,24 @@ import {
   Play,
   Pause,
   VolumeX,
+  Volume2,
   Tv,
-  LogOut,
   AlertCircle,
-  Smartphone,
   RefreshCw,
+  Clock,
+  Crown,
+  Plus,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/useAuth';
+import { useServerTime } from '../hooks/useServerTime';
 
+const LIVE_ROOM_ID = 'LIVE';
+const LIVE_CHANNEL_NAME = 'audiosync-live';
 const YOUTUBE_CONTAINER_ID = 'audiosync-yt-player';
 const YT_VIDEO_ID_REGEX = /^[a-zA-Z0-9_-]{11}$/;
 const ROOM_CODE_REGEX = /^[A-Z0-9-]{3,24}$/;
-const DEFAULT_PLAY_LEAD_MS = 1400;
+const PLAY_SCHEDULE_LEAD_MS = 1500;
 const SEEK_BUFFER_LEAD_SEC = 0.35;
 
 function generateRoomCode() {
@@ -48,9 +52,7 @@ function isValidYouTubeId(id) {
 function extractYouTubeVideoId(input) {
   if (!input || typeof input !== 'string') return null;
   const trimmed = input.trim();
-  if (isValidYouTubeId(trimmed)) {
-    return trimmed;
-  }
+  if (isValidYouTubeId(trimmed)) return trimmed;
 
   try {
     const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
@@ -58,7 +60,6 @@ function extractYouTubeVideoId(input) {
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
 
     const host = url.hostname.replace(/^www\./, '').toLowerCase();
-
     if (host === 'youtu.be') {
       const id = url.pathname.split('/').filter(Boolean)[0];
       return isValidYouTubeId(id) ? id : null;
@@ -70,9 +71,7 @@ function extractYouTubeVideoId(input) {
       host === 'music.youtube.com'
     ) {
       const vParam = url.searchParams.get('v');
-      if (isValidYouTubeId(vParam)) {
-        return vParam;
-      }
+      if (isValidYouTubeId(vParam)) return vParam;
 
       const parts = url.pathname.split('/').filter(Boolean);
       if (
@@ -94,22 +93,17 @@ function sanitizeSyncPayload(payload) {
   if (!payload || typeof payload !== 'object') return null;
   if (!isValidYouTubeId(payload.videoId)) return null;
 
-  const rawTime = payload.targetTime !== undefined ? payload.targetTime : payload.hostTime;
-  const targetTime = Number(rawTime);
-  const serverTimestamp = Number(payload.serverTimestamp);
-  if (!Number.isFinite(targetTime) || targetTime < 0) return null;
-  if (!Number.isFinite(serverTimestamp) || serverTimestamp <= 0) return null;
-
-  const executeAt =
-    payload.executeAt !== undefined ? Number(payload.executeAt) : undefined;
-  if (executeAt !== undefined && !Number.isFinite(executeAt)) return null;
+  const trackPositionSec = Number(payload.trackPositionSec);
+  const startAtServerMs = Number(payload.startAtServerMs);
+  if (!Number.isFinite(trackPositionSec) || trackPositionSec < 0) return null;
+  if (!Number.isFinite(startAtServerMs) || startAtServerMs <= 0) return null;
 
   return {
+    action: typeof payload.action === 'string' ? payload.action : 'PLAY',
     videoId: payload.videoId,
-    targetTime,
-    serverTimestamp,
+    trackPositionSec,
+    startAtServerMs,
     isPlaying: Boolean(payload.isPlaying),
-    executeAt,
     preBuffered: Boolean(payload.preBuffered),
   };
 }
@@ -117,9 +111,7 @@ function sanitizeSyncPayload(payload) {
 let ytApiPromise = null;
 function loadYouTubeIframeAPI() {
   if (typeof window === 'undefined') return Promise.reject(new Error('Window unavailable'));
-  if (window.YT && window.YT.Player) {
-    return Promise.resolve(window.YT);
-  }
+  if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
   if (ytApiPromise) return ytApiPromise;
 
   ytApiPromise = new Promise((resolve, reject) => {
@@ -157,35 +149,44 @@ const AudioSync = () => {
   const { profile, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const rawUrlRoom = (searchParams.get('room') || '').trim().toUpperCase();
-  const urlRoom = ROOM_CODE_REGEX.test(rawUrlRoom) ? rawUrlRoom : '';
+  const initialRoom = ROOM_CODE_REGEX.test(rawUrlRoom) ? rawUrlRoom : LIVE_ROOM_ID;
+
+  const {
+    getServerNow,
+    offsetMs,
+    rttMs,
+    isSynced: serverTimeSynced,
+    serverClockStr,
+    resyncClock,
+  } = useServerTime();
 
   const [peerId] = useState(() => generatePeerId());
   const displayName =
     profile?.display_name || user?.email?.split('@')[0] || 'Operator';
 
-  // Lobby / Room state
-  const [roomInput, setRoomInput] = useState(urlRoom);
-  const [activeRoom, setActiveRoom] = useState('');
-  const [role, setRole] = useState(null); // 'host' | 'listener'
-  const [joiningRoom, setJoiningRoom] = useState(false);
-  const [needsSpeakerTap, setNeedsSpeakerTap] = useState(Boolean(urlRoom));
-  const [needsPlayTap, setNeedsPlayTap] = useState(false);
+  // Room state — auto-joins shared `audiosync-live` room or `?room=`
+  const [activeRoom, setActiveRoom] = useState(initialRoom);
+  const [roomInput, setRoomInput] = useState('');
+  const [role, setRole] = useState(initialRoom === LIVE_ROOM_ID ? 'listener' : 'listener');
+  const [channelStatus, setChannelStatus] = useState('Connecting...');
   const [copiedLink, setCopiedLink] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [presenceList, setPresenceList] = useState([]);
   const [wakeLockActive, setWakeLockActive] = useState(false);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [needsPlayTap, setNeedsPlayTap] = useState(false);
 
-  // YouTube Sync state & live telemetry
+  // YouTube Sync state
   const [ytInput, setYtInput] = useState('');
   const [videoId, setVideoId] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [nudgeOffsetMs, setNudgeOffsetMs] = useState(0);
   const [adBreakActive, setAdBreakActive] = useState(false);
   const [ytReady, setYtReady] = useState(false);
-  const [telemetry, setTelemetry] = useState({ rttMs: null, driftMs: null, rate: 1 });
+  const [driftMs, setDriftMs] = useState(null);
+  const [playbackRate, setPlaybackRate] = useState(1);
 
-  // Refs for strict lifecycle & cleanup
+  // Refs for lifecycle & cleanup
   const channelRef = useRef(null);
   const ytPlayerRef = useRef(null);
   const audioCtxRef = useRef(null);
@@ -193,25 +194,26 @@ const AudioSync = () => {
 
   const heartbeatIntervalRef = useRef(null);
   const driftLoopIntervalRef = useRef(null);
-  const clockRecalIntervalRef = useRef(null);
   const scheduledActionTimeoutRef = useRef(null);
-  const clockPingTimersRef = useRef([]);
 
-  const clockOffsetMsRef = useRef(0);
-  const bestRttMsRef = useRef(Infinity);
   const lastSeekAtRef = useRef(0);
   const lastProgressAtRef = useRef(0);
   const prevPlayerTimeRef = useRef(null);
   const latestSyncRef = useRef(null);
   const adBreakRef = useRef(false);
   const nudgeOffsetMsRef = useRef(0);
-  const activeRoomRef = useRef('');
-  const roleRef = useRef(null);
+  const activeRoomRef = useRef(initialRoom);
+  const roleRef = useRef('listener');
   const videoIdRef = useRef('');
   const isPlayingRef = useRef(false);
   const applyListenerSyncRef = useRef(null);
   const hostControlFnRef = useRef(null);
   const hostManualSyncBlockRef = useRef(false);
+  const getServerNowRef = useRef(getServerNow);
+
+  useEffect(() => {
+    getServerNowRef.current = getServerNow;
+  }, [getServerNow]);
 
   useEffect(() => {
     nudgeOffsetMsRef.current = nudgeOffsetMs;
@@ -233,104 +235,89 @@ const AudioSync = () => {
     isPlayingRef.current = isPlaying;
   }, [isPlaying]);
 
-  // Converts local wall-clock time to Host wall-clock time
-  const getServerNow = useCallback(() => Date.now() + clockOffsetMsRef.current, []);
-
-  // Compute expected Host video position right now using latest authoritative sync packet
-  const computeExpectedVideoTime = useCallback(
-    (syncPayload) => {
-      if (!syncPayload) return 0;
-      const serverNow = getServerNow();
-      if (!syncPayload.isPlaying) {
-        return Math.max(0, syncPayload.targetTime + nudgeOffsetMsRef.current / 1000);
-      }
-      // Reference clock is executeAt if pre-buffered start, otherwise serverTimestamp
-      const refTimeMs =
-        syncPayload.preBuffered && syncPayload.executeAt
-          ? syncPayload.executeAt
-          : syncPayload.serverTimestamp;
-      const elapsedSec = Math.max(0, (serverNow - refTimeMs) / 1000);
-      return Math.max(
-        0,
-        syncPayload.targetTime + elapsedSec + nudgeOffsetMsRef.current / 1000
-      );
-    },
-    [getServerNow]
-  );
-
-  const ensureAudioContext = useCallback(async () => {
-    if (typeof window === 'undefined') return null;
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return null;
-
-    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
-      audioCtxRef.current = new Ctx();
+  // Expected track position anchored strictly to authoritative server time
+  const computeExpectedVideoTime = useCallback((syncPayload) => {
+    if (!syncPayload) return 0;
+    if (!syncPayload.isPlaying) {
+      return Math.max(0, syncPayload.trackPositionSec + nudgeOffsetMsRef.current / 1000);
     }
-    if (audioCtxRef.current.state === 'suspended') {
-      await audioCtxRef.current.resume().catch(() => {});
-    }
-
-    try {
-      const buffer = audioCtxRef.current.createBuffer(1, 1, 22050);
-      const source = audioCtxRef.current.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audioCtxRef.current.destination);
-      source.start(0);
-    } catch {
-      // Ignore unlock errors
-    }
-
-    return audioCtxRef.current;
+    const elapsedSec = Math.max(
+      0,
+      (getServerNowRef.current() - syncPayload.startAtServerMs) / 1000
+    );
+    return Math.max(
+      0,
+      syncPayload.trackPositionSec + elapsedSec + nudgeOffsetMsRef.current / 1000
+    );
   }, []);
 
-  const requestWakeLock = useCallback(async () => {
-    if (typeof navigator === 'undefined' || !('wakeLock' in navigator)) {
-      setWakeLockActive(false);
-      return;
-    }
-    try {
-      if (wakeLockRef.current) {
-        await wakeLockRef.current.release().catch(() => {});
+  const ensureAudioContextAndWakeLock = useCallback(async () => {
+    if (typeof window !== 'undefined') {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx) {
+        if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+          audioCtxRef.current = new Ctx();
+        }
+        if (audioCtxRef.current.state === 'suspended') {
+          await audioCtxRef.current.resume().catch(() => {});
+        }
+        try {
+          const buffer = audioCtxRef.current.createBuffer(1, 1, 22050);
+          const source = audioCtxRef.current.createBufferSource();
+          source.buffer = buffer;
+          source.connect(audioCtxRef.current.destination);
+          source.start(0);
+        } catch {
+          // Ignore unlock errors
+        }
       }
-      const sentinel = await navigator.wakeLock.request('screen');
-      wakeLockRef.current = sentinel;
-      setWakeLockActive(true);
-      sentinel.addEventListener('release', () => {
+      setAudioUnlocked(true);
+    }
+
+    if (typeof navigator !== 'undefined' && 'wakeLock' in navigator) {
+      try {
+        if (wakeLockRef.current) {
+          await wakeLockRef.current.release().catch(() => {});
+        }
+        const sentinel = await navigator.wakeLock.request('screen');
+        wakeLockRef.current = sentinel;
+        setWakeLockActive(true);
+        sentinel.addEventListener('release', () => setWakeLockActive(false));
+      } catch {
         setWakeLockActive(false);
-      });
-    } catch {
-      setWakeLockActive(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && activeRoomRef.current) {
-        requestWakeLock();
+      if (document.visibilityState === 'visible' && activeRoomRef.current && audioUnlocked) {
+        ensureAudioContextAndWakeLock();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [requestWakeLock]);
+  }, [audioUnlocked, ensureAudioContextAndWakeLock]);
 
   const updatePresenceStatus = useCallback(
-    async (statusText) => {
+    async (statusText, overrideRole) => {
       if (!channelRef.current) return;
       try {
         await channelRef.current.track({
           peerId,
-          displayName,
-          role: roleRef.current || 'listener',
+          user_id: user?.id || peerId,
+          display_name: displayName,
+          role: overrideRole || roleRef.current || 'listener',
           status: statusText,
-          joinedAt: Date.now(),
+          joined_at: getServerNowRef.current(),
         });
       } catch {
-        // Ignore presence update errors if channel closing
+        // Ignore errors if channel is closing
       }
     },
-    [displayName, peerId]
+    [displayName, peerId, user?.id]
   );
 
   const cleanupRoomResources = useCallback(() => {
@@ -342,16 +329,10 @@ const AudioSync = () => {
       clearInterval(driftLoopIntervalRef.current);
       driftLoopIntervalRef.current = null;
     }
-    if (clockRecalIntervalRef.current) {
-      clearInterval(clockRecalIntervalRef.current);
-      clockRecalIntervalRef.current = null;
-    }
     if (scheduledActionTimeoutRef.current) {
       clearTimeout(scheduledActionTimeoutRef.current);
       scheduledActionTimeoutRef.current = null;
     }
-    clockPingTimersRef.current.forEach((t) => clearTimeout(t));
-    clockPingTimersRef.current = [];
 
     if (channelRef.current) {
       if (supabase) {
@@ -382,16 +363,15 @@ const AudioSync = () => {
     }
     setWakeLockActive(false);
 
-    bestRttMsRef.current = Infinity;
-    clockOffsetMsRef.current = 0;
     lastSeekAtRef.current = 0;
-    lastProgressAtRef.current = Date.now();
+    lastProgressAtRef.current = 0;
     latestSyncRef.current = null;
     prevPlayerTimeRef.current = null;
     adBreakRef.current = false;
     setAdBreakActive(false);
     setNeedsPlayTap(false);
-    setTelemetry({ rttMs: null, driftMs: null, rate: 1 });
+    setDriftMs(null);
+    setPlaybackRate(1);
     setPresenceList([]);
   }, []);
 
@@ -401,10 +381,9 @@ const AudioSync = () => {
     };
   }, [cleanupRoomResources]);
 
-  // Initialize or update YouTube Player when videoId is set inside an active room
+  // Initialize / update YouTube Player when videoId is set
   useEffect(() => {
     if (!activeRoom || !videoId) return;
-
     let cancelled = false;
 
     const initPlayer = async () => {
@@ -460,15 +439,16 @@ const AudioSync = () => {
                 isPlayingRef.current = nowPlaying;
                 if (!hostManualSyncBlockRef.current && channelRef.current && videoIdRef.current) {
                   const hostTime = ytPlayerRef.current?.getCurrentTime?.() || 0;
+                  const serverNow = getServerNowRef.current();
                   channelRef.current.send({
                     type: 'broadcast',
-                    event: 'yt-control',
+                    event: 'playback',
                     payload: {
+                      action: nowPlaying ? 'PLAY' : 'PAUSE',
                       videoId: videoIdRef.current,
-                      targetTime: hostTime,
-                      serverTimestamp: Date.now(),
+                      trackPositionSec: hostTime,
+                      startAtServerMs: serverNow,
                       isPlaying: nowPlaying,
-                      executeAt: Date.now(),
                       preBuffered: false,
                     },
                   });
@@ -490,7 +470,7 @@ const AudioSync = () => {
     };
   }, [activeRoom, videoId, updatePresenceStatus]);
 
-  // Apply host sync command on speaker with exact pre-buffered future executeAt math
+  // Apply authoritative server-timestamped broadcast on listener
   const applyListenerSync = useCallback(
     (payload, forceImmediate = false) => {
       if (!payload || roleRef.current === 'host') return;
@@ -509,13 +489,12 @@ const AudioSync = () => {
       const player = ytPlayerRef.current;
       if (!player || typeof player.seekTo !== 'function') return;
 
-      // Always reset playbackRate before applying a control jump
       player.setPlaybackRate?.(1);
+      setPlaybackRate(1);
 
-      // Universal Stop / Pause: pause immediately and lock onto exact paused timestamp
       if (!payload.isPlaying) {
         player.pauseVideo?.();
-        const target = Math.max(0, payload.targetTime + nudgeOffsetMsRef.current / 1000);
+        const target = Math.max(0, payload.trackPositionSec + nudgeOffsetMsRef.current / 1000);
         const current = player.getCurrentTime?.() || 0;
         if (Math.abs(current - target) > 0.15) {
           lastSeekAtRef.current = Date.now();
@@ -523,7 +502,7 @@ const AudioSync = () => {
           player.pauseVideo?.();
         }
         setNeedsPlayTap(false);
-        setTelemetry((prev) => ({ ...prev, driftMs: 0, rate: 1 }));
+        setDriftMs(0);
         updatePresenceStatus('Paused');
         return;
       }
@@ -534,12 +513,12 @@ const AudioSync = () => {
 
         const expectedNow = computeExpectedVideoTime(payload);
         const current = p.getCurrentTime?.() || 0;
-        // Only seek if we aren't already sitting right on the pre-buffered target frame
-        if (Math.abs(current - expectedNow) > 0.2) {
+        if (Math.abs(current - expectedNow) > 0.15) {
           lastSeekAtRef.current = Date.now();
           p.seekTo(expectedNow + SEEK_BUFFER_LEAD_SEC, true);
         }
         p.setPlaybackRate?.(1);
+        setPlaybackRate(1);
         p.playVideo?.();
         lastProgressAtRef.current = Date.now();
         updatePresenceStatus(adBreakRef.current ? 'Ad Break' : 'Synced');
@@ -554,12 +533,15 @@ const AudioSync = () => {
         }, 900);
       };
 
-      const delayMs =
-        !forceImmediate && payload.executeAt ? payload.executeAt - getServerNow() : 0;
+      const delayMs = !forceImmediate
+        ? payload.startAtServerMs - getServerNowRef.current()
+        : 0;
 
       if (delayMs > 60) {
-        // Pre-seek and hold paused while buffering so playVideo() fires at exact executeAt
-        const preTarget = Math.max(0, payload.targetTime + nudgeOffsetMsRef.current / 1000);
+        const preTarget = Math.max(
+          0,
+          payload.trackPositionSec + nudgeOffsetMsRef.current / 1000
+        );
         lastSeekAtRef.current = Date.now();
         player.seekTo(preTarget, true);
         player.pauseVideo?.();
@@ -569,14 +551,14 @@ const AudioSync = () => {
         startAtTarget();
       }
     },
-    [computeExpectedVideoTime, getServerNow, updatePresenceStatus]
+    [computeExpectedVideoTime, updatePresenceStatus]
   );
 
   useEffect(() => {
     applyListenerSyncRef.current = applyListenerSync;
   }, [applyListenerSync]);
 
-  // Host authoritative 2-second heartbeat
+  // Host 2-second heartbeat anchored to authoritative server time
   useEffect(() => {
     if (!activeRoom || role !== 'host') return;
 
@@ -596,11 +578,12 @@ const AudioSync = () => {
 
       channelRef.current.send({
         type: 'broadcast',
-        event: 'yt-heartbeat',
+        event: 'heartbeat',
         payload: {
+          action: playingNow ? 'PLAY' : 'PAUSE',
           videoId: videoIdRef.current,
-          targetTime: hostTime,
-          serverTimestamp: Date.now(),
+          trackPositionSec: hostTime,
+          startAtServerMs: getServerNowRef.current(),
           isPlaying: Boolean(playingNow),
           preBuffered: false,
         },
@@ -615,7 +598,7 @@ const AudioSync = () => {
     };
   }, [activeRoom, role]);
 
-  // Speaker 500ms smooth playbackRate catch-up & Ad-Break recovery loop
+  // Speaker 500ms smooth playbackRate drift catch-up (0.08s threshold) & Ad-Break recovery
   useEffect(() => {
     if (!activeRoom || role !== 'listener') return;
 
@@ -628,13 +611,10 @@ const AudioSync = () => {
       const player = ytPlayerRef.current;
       if (!sync || !sync.isPlaying || !player) return;
       if (typeof player.getCurrentTime !== 'function') return;
-
-      // Do not fight a scheduled pre-buffered start
       if (scheduledActionTimeoutRef.current) return;
 
       const expectedTime = computeExpectedVideoTime(sync);
       const actualTime = player.getCurrentTime() || 0;
-      // Positive signedDrift = speaker is BEHIND host; negative = speaker is AHEAD of host
       const signedDrift = expectedTime - actualTime;
       const absDrift = Math.abs(signedDrift);
 
@@ -644,25 +624,22 @@ const AudioSync = () => {
       if (prevTime !== null && Math.abs(actualTime - prevTime) >= 0.15) {
         lastProgressAtRef.current = Date.now();
       }
+      if (lastProgressAtRef.current === 0) {
+        lastProgressAtRef.current = Date.now();
+      }
 
       const playerState = player.getPlayerState?.();
       const ytPlayingState = window.YT?.PlayerState?.PLAYING ?? 1;
       const seekCooldownActive = Date.now() - lastSeekAtRef.current < 2200;
 
-      setTelemetry((prev) => ({
-        ...prev,
-        driftMs: Math.round(signedDrift * 1000),
-      }));
+      setDriftMs(Math.round(signedDrift * 1000));
 
       if (!adBreakRef.current) {
-        if (lastProgressAtRef.current === 0) {
-          lastProgressAtRef.current = Date.now();
-        }
-        // Ad freeze detection: video stalled > 2.2s while host clock kept advancing
         if (Date.now() - lastProgressAtRef.current >= 2200 && absDrift > 1.5) {
           adBreakRef.current = true;
           setAdBreakActive(true);
           player.setPlaybackRate?.(1);
+          setPlaybackRate(1);
           player.mute?.();
           updatePresenceStatus('Ad Break');
           return;
@@ -671,35 +648,32 @@ const AudioSync = () => {
         if (playerState !== ytPlayingState) return;
 
         if (absDrift > 1.25 && !seekCooldownActive) {
-          // Large jump needed: add seek-buffer lead compensation
           lastSeekAtRef.current = Date.now();
           player.setPlaybackRate?.(1);
+          setPlaybackRate(1);
           player.seekTo(expectedTime + SEEK_BUFFER_LEAD_SEC, true);
-          setTelemetry((prev) => ({ ...prev, rate: 1 }));
-        } else if (absDrift > 0.12 && !seekCooldownActive) {
-          // Smooth micro-catchup without triggering YouTube re-buffering!
+        } else if (absDrift > 0.08 && !seekCooldownActive) {
           const targetRate = signedDrift > 0 ? 1.25 : 0.75;
           if (player.getPlaybackRate?.() !== targetRate) {
             player.setPlaybackRate?.(targetRate);
-            setTelemetry((prev) => ({ ...prev, rate: targetRate }));
+            setPlaybackRate(targetRate);
           }
         } else if (player.getPlaybackRate?.() !== 1) {
           player.setPlaybackRate?.(1);
-          setTelemetry((prev) => ({ ...prev, rate: 1 }));
+          setPlaybackRate(1);
         }
       } else if (
         prevTime !== null &&
         actualTime - prevTime >= 0.15 &&
         playerState === ytPlayingState
       ) {
-        // Ad ended: snap back with seek-buffer compensation and unmute
         adBreakRef.current = false;
         setAdBreakActive(false);
         lastSeekAtRef.current = Date.now();
         player.setPlaybackRate?.(1);
+        setPlaybackRate(1);
         player.seekTo(expectedTime + SEEK_BUFFER_LEAD_SEC, true);
         player.unMute?.();
-        setTelemetry((prev) => ({ ...prev, rate: 1 }));
         updatePresenceStatus('Synced');
       }
     }, 500);
@@ -712,136 +686,130 @@ const AudioSync = () => {
     };
   }, [activeRoom, computeExpectedVideoTime, role, updatePresenceStatus]);
 
-  // Host authoritative Sync Play / Universal Pause / Restart controller
-  const broadcastYouTubeControl = useCallback(
-    (actionMode, explicitTime) => {
-      if (!channelRef.current || roleRef.current !== 'host' || !videoIdRef.current) return;
-      const player = ytPlayerRef.current;
-      const currentHostTime =
-        explicitTime !== undefined
-          ? explicitTime
-          : player && typeof player.getCurrentTime === 'function'
-            ? player.getCurrentTime() || 0
-            : 0;
+  // Host control broadcasts (Sync Play / Universal Pause / Restart)
+  const broadcastYouTubeControl = useCallback((actionMode, explicitTime) => {
+    if (!channelRef.current || roleRef.current !== 'host' || !videoIdRef.current) return;
+    const player = ytPlayerRef.current;
+    const currentHostTime =
+      explicitTime !== undefined
+        ? explicitTime
+        : player && typeof player.getCurrentTime === 'function'
+          ? player.getCurrentTime() || 0
+          : 0;
 
-      if (scheduledActionTimeoutRef.current) {
-        clearTimeout(scheduledActionTimeoutRef.current);
-        scheduledActionTimeoutRef.current = null;
-      }
+    if (scheduledActionTimeoutRef.current) {
+      clearTimeout(scheduledActionTimeoutRef.current);
+      scheduledActionTimeoutRef.current = null;
+    }
 
-      const now = Date.now();
+    const serverNow = getServerNowRef.current();
 
-      // UNIVERSAL PAUSE: instant stop across host and every speaker
-      if (actionMode === 'pause') {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'yt-control',
-          payload: {
-            videoId: videoIdRef.current,
-            targetTime: currentHostTime,
-            serverTimestamp: now,
-            isPlaying: false,
-            executeAt: now,
-            preBuffered: false,
-          },
-        });
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-        if (player) {
-          hostManualSyncBlockRef.current = true;
-          if (explicitTime !== undefined) {
-            player.seekTo?.(explicitTime, true);
-          }
-          player.pauseVideo?.();
-          setTimeout(() => {
-            hostManualSyncBlockRef.current = false;
-          }, 400);
-        }
-        return;
-      }
-
-      // SYNC PLAY / UNIVERSAL PLAY:
-      // Calculate latency lead so all speakers pre-buffer targetTime before executeAt.
-      const leadMs = Math.max(DEFAULT_PLAY_LEAD_MS, Math.round((bestRttMsRef.current || 0) + 900));
-      const executeAt = now + leadMs;
-      const hostCurrentlyPlaying =
-        explicitTime === undefined &&
-        actionMode === 'resync' &&
-        window.YT?.PlayerState &&
-        player?.getPlayerState?.() === window.YT.PlayerState.PLAYING;
-
-      // If host is already playing and user clicked Sync Play to realign drifted speakers,
-      // project targetTime forward by leadMs so host reaches targetTime naturally at executeAt!
-      const targetTime = hostCurrentlyPlaying
-        ? currentHostTime + leadMs / 1000
-        : currentHostTime;
-
+    if (actionMode === 'pause') {
       channelRef.current.send({
         type: 'broadcast',
-        event: 'yt-control',
+        event: 'playback',
         payload: {
+          action: 'PAUSE',
           videoId: videoIdRef.current,
-          targetTime,
-          serverTimestamp: now,
-          isPlaying: true,
-          executeAt,
-          preBuffered: true,
+          trackPositionSec: currentHostTime,
+          startAtServerMs: serverNow,
+          isPlaying: false,
+          preBuffered: false,
         },
       });
-
-      setIsPlaying(true);
-      isPlayingRef.current = true;
-
+      setIsPlaying(false);
+      isPlayingRef.current = false;
       if (player) {
         hostManualSyncBlockRef.current = true;
-        if (!hostCurrentlyPlaying) {
-          player.seekTo?.(targetTime, true);
-          player.pauseVideo?.();
-          scheduledActionTimeoutRef.current = setTimeout(() => {
-            ytPlayerRef.current?.playVideo?.();
-            setTimeout(() => {
-              hostManualSyncBlockRef.current = false;
-            }, 500);
-          }, leadMs);
-        } else {
-          // Host keeps playing smoothly toward targetTime
+        if (explicitTime !== undefined) player.seekTo?.(explicitTime, true);
+        player.pauseVideo?.();
+        setTimeout(() => {
+          hostManualSyncBlockRef.current = false;
+        }, 400);
+      }
+      return;
+    }
+
+    const startAtServerMs = serverNow + PLAY_SCHEDULE_LEAD_MS;
+    const hostCurrentlyPlaying =
+      explicitTime === undefined &&
+      actionMode === 'resync' &&
+      window.YT?.PlayerState &&
+      player?.getPlayerState?.() === window.YT.PlayerState.PLAYING;
+
+    const targetPos = hostCurrentlyPlaying
+      ? currentHostTime + PLAY_SCHEDULE_LEAD_MS / 1000
+      : currentHostTime;
+
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'playback',
+      payload: {
+        action: explicitTime !== undefined ? 'SEEK' : 'PLAY',
+        videoId: videoIdRef.current,
+        trackPositionSec: targetPos,
+        startAtServerMs,
+        isPlaying: true,
+        preBuffered: true,
+      },
+    });
+
+    setIsPlaying(true);
+    isPlayingRef.current = true;
+
+    if (player) {
+      hostManualSyncBlockRef.current = true;
+      if (!hostCurrentlyPlaying) {
+        player.seekTo?.(targetPos, true);
+        player.pauseVideo?.();
+        scheduledActionTimeoutRef.current = setTimeout(() => {
+          ytPlayerRef.current?.playVideo?.();
           setTimeout(() => {
             hostManualSyncBlockRef.current = false;
           }, 500);
-        }
+        }, PLAY_SCHEDULE_LEAD_MS);
+      } else {
+        setTimeout(() => {
+          hostManualSyncBlockRef.current = false;
+        }, 500);
       }
-    },
-    []
-  );
+    }
+  }, []);
 
   useEffect(() => {
     hostControlFnRef.current = broadcastYouTubeControl;
   }, [broadcastYouTubeControl]);
 
-  // Connect to Supabase Realtime room channel
-  const connectToRoom = useCallback(
-    async (roomCode, nextRole) => {
+  // Connect to shared `audiosync-live` or custom room `audiosync:<roomCode>`
+  const joinChannel = useCallback(
+    (roomCode, nextRole) => {
       if (!ROOM_CODE_REGEX.test(roomCode)) {
-        setErrorMessage('Invalid room code format. Use 3–24 uppercase letters, numbers, or hyphens.');
+        setErrorMessage('Invalid room code format.');
         return;
       }
-
       if (!supabase) {
-        setErrorMessage(
-          'Supabase client is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.'
-        );
+        setErrorMessage('Supabase client is not configured.');
         return;
       }
 
       cleanupRoomResources();
       setErrorMessage('');
-      setJoiningRoom(true);
-      setStatusMessage(`Connecting to ${roomCode}...`);
+      setChannelStatus('Connecting...');
+      roleRef.current = nextRole;
+      activeRoomRef.current = roomCode;
+      setRole(nextRole);
+      setActiveRoom(roomCode);
 
-      await ensureAudioContext();
-      await requestWakeLock();
+      if (roomCode === LIVE_ROOM_ID) {
+        setSearchParams({}, { replace: true });
+      } else {
+        setSearchParams({ room: roomCode }, { replace: true });
+      }
 
-      const channel = supabase.channel(`audiosync:${roomCode}`, {
+      const channelTopic =
+        roomCode === LIVE_ROOM_ID ? LIVE_CHANNEL_NAME : `audiosync:${roomCode}`;
+
+      const channel = supabase.channel(channelTopic, {
         config: {
           presence: { key: peerId },
           broadcast: { self: false },
@@ -854,69 +822,20 @@ const AudioSync = () => {
         const state = channel.presenceState();
         const flattened = [];
         Object.values(state).forEach((entries) => {
-          entries.forEach((entry) => {
-            flattened.push(entry);
-          });
+          entries.forEach((entry) => flattened.push(entry));
         });
         setPresenceList(flattened);
       });
 
-      channel.on('broadcast', { event: 'clock-ping' }, ({ payload }) => {
-        if (roleRef.current !== 'host' || !payload?.fromPeerId) return;
-        const clientSentAt = Number(payload.clientSentAt);
-        if (!Number.isFinite(clientSentAt)) return;
-        channel.send({
-          type: 'broadcast',
-          event: 'clock-pong',
-          payload: {
-            toPeerId: payload.fromPeerId,
-            clientSentAt,
-            hostNow: Date.now(),
-          },
-        });
-      });
-
-      channel.on('broadcast', { event: 'clock-pong' }, ({ payload }) => {
-        if (payload?.toPeerId !== peerId) return;
-        const clientSentAt = Number(payload.clientSentAt);
-        const hostNow = Number(payload.hostNow);
-        if (!Number.isFinite(clientSentAt) || !Number.isFinite(hostNow)) return;
-        const rtt = Math.max(0, Date.now() - clientSentAt);
-        if (rtt <= bestRttMsRef.current + 20) {
-          bestRttMsRef.current = Math.min(bestRttMsRef.current, rtt);
-          clockOffsetMsRef.current = hostNow + rtt / 2 - Date.now();
-          setTelemetry((prev) => ({ ...prev, rttMs: Math.round(rtt) }));
-        }
-        if (roleRef.current === 'listener' && !latestSyncRef.current) {
-          updatePresenceStatus('Standby');
+      channel.on('broadcast', { event: 'host-claimed' }, ({ payload }) => {
+        if (!payload?.hostPeerId || payload.hostPeerId === peerId) return;
+        if (roleRef.current === 'host') {
+          roleRef.current = 'listener';
+          setRole('listener');
+          updatePresenceStatus('Synced', 'listener');
         }
       });
 
-      const sendClockPingBurst = () => {
-        clockPingTimersRef.current.forEach((t) => clearTimeout(t));
-        clockPingTimersRef.current = [0, 200, 450, 750].map((delay) =>
-          setTimeout(() => {
-            channel.send({
-              type: 'broadcast',
-              event: 'clock-ping',
-              payload: { fromPeerId: peerId, clientSentAt: Date.now() },
-            });
-          }, delay)
-        );
-      };
-
-      channel.on('broadcast', { event: 'host-ready' }, () => {
-        if (roleRef.current !== 'listener') return;
-        bestRttMsRef.current = Infinity;
-        sendClockPingBurst();
-        channel.send({
-          type: 'broadcast',
-          event: 'peer-join',
-          payload: { peerId, displayName },
-        });
-      });
-
-      // Allow universal pause/play trigger from any speaker in the room via host
       channel.on('broadcast', { event: 'universal-signal' }, ({ payload }) => {
         if (roleRef.current !== 'host' || !payload) return;
         if (payload.command === 'pause') {
@@ -926,13 +845,13 @@ const AudioSync = () => {
         }
       });
 
-      channel.on('broadcast', { event: 'yt-control' }, ({ payload }) => {
+      channel.on('broadcast', { event: 'playback' }, ({ payload }) => {
         const sanitized = sanitizeSyncPayload(payload);
         if (!sanitized) return;
         applyListenerSync(sanitized, !sanitized.isPlaying);
       });
 
-      channel.on('broadcast', { event: 'yt-heartbeat' }, ({ payload }) => {
+      channel.on('broadcast', { event: 'heartbeat' }, ({ payload }) => {
         if (roleRef.current === 'host') return;
         const sanitized = sanitizeSyncPayload(payload);
         if (!sanitized) return;
@@ -949,9 +868,13 @@ const AudioSync = () => {
 
         if (!sanitized.isPlaying) {
           player.setPlaybackRate?.(1);
+          setPlaybackRate(1);
           player.pauseVideo?.();
           const current = player.getCurrentTime() || 0;
-          const target = Math.max(0, sanitized.targetTime + nudgeOffsetMsRef.current / 1000);
+          const target = Math.max(
+            0,
+            sanitized.trackPositionSec + nudgeOffsetMsRef.current / 1000
+          );
           if (Math.abs(current - target) > 0.2) {
             lastSeekAtRef.current = Date.now();
             player.seekTo(target, true);
@@ -983,11 +906,12 @@ const AudioSync = () => {
               : 0;
           channel.send({
             type: 'broadcast',
-            event: 'yt-heartbeat',
+            event: 'heartbeat',
             payload: {
+              action: isPlayingRef.current ? 'PLAY' : 'PAUSE',
               videoId: videoIdRef.current,
-              targetTime: hostTime,
-              serverTimestamp: Date.now(),
+              trackPositionSec: hostTime,
+              startAtServerMs: getServerNowRef.current(),
               isPlaying: isPlayingRef.current,
               preBuffered: false,
             },
@@ -995,65 +919,34 @@ const AudioSync = () => {
         }
       });
 
-      let subscribed = false;
-      const joinTimeout = setTimeout(() => {
-        if (!subscribed) {
-          setJoiningRoom(false);
-          setErrorMessage('Connection to room timed out. Please check your connection and try again.');
-        }
-      }, 10000);
-
       channel.subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          subscribed = true;
-          clearTimeout(joinTimeout);
-          roleRef.current = nextRole;
-          activeRoomRef.current = roomCode;
-          setJoiningRoom(false);
-          setActiveRoom(roomCode);
-          setRole(nextRole);
-          setNeedsSpeakerTap(false);
-          setSearchParams({ room: roomCode }, { replace: true });
-          setStatusMessage(
-            nextRole === 'host'
-              ? `Hosting room ${roomCode}. Share QR code or link with speakers.`
-              : `Connected to ${roomCode} as speaker.`
-          );
-
+          setChannelStatus('Live');
           await channel.track({
             peerId,
-            displayName,
+            user_id: user?.id || peerId,
+            display_name: displayName,
             role: nextRole,
-            status: nextRole === 'host' ? 'Synced' : 'Standby',
-            joinedAt: Date.now(),
+            status: nextRole === 'host' ? 'Host' : 'Standby',
+            joined_at: getServerNowRef.current(),
           });
 
           if (nextRole === 'host') {
             channel.send({
               type: 'broadcast',
-              event: 'host-ready',
-              payload: { peerId },
+              event: 'host-claimed',
+              payload: { hostPeerId: peerId },
             });
           } else {
-            sendClockPingBurst();
             channel.send({
               type: 'broadcast',
               event: 'peer-join',
               payload: { peerId, displayName },
             });
-            // Periodic clock recalibration every 10s
-            clockRecalIntervalRef.current = setInterval(() => {
-              channel.send({
-                type: 'broadcast',
-                event: 'clock-ping',
-                payload: { fromPeerId: peerId, clientSentAt: Date.now() },
-              });
-            }, 10000);
           }
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-          clearTimeout(joinTimeout);
-          setJoiningRoom(false);
-          setErrorMessage('Failed to connect to Supabase Realtime room channel.');
+          setChannelStatus('Disconnected');
+          setErrorMessage('Failed to connect to Supabase Realtime room.');
         }
       });
     },
@@ -1062,49 +955,59 @@ const AudioSync = () => {
       cleanupRoomResources,
       computeExpectedVideoTime,
       displayName,
-      ensureAudioContext,
       peerId,
-      requestWakeLock,
       setSearchParams,
       updatePresenceStatus,
+      user?.id,
     ]
   );
 
-  const handleCreateRoom = () => {
+  // Auto-join live room on mount
+  useEffect(() => {
+    joinChannel(initialRoom, 'listener');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleBecomeHost = async () => {
+    await ensureAudioContextAndWakeLock();
+    roleRef.current = 'host';
+    setRole('host');
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'host-claimed',
+      payload: { hostPeerId: peerId },
+    });
+    updatePresenceStatus('Host', 'host');
+  };
+
+  const handleCreatePrivateRoom = async () => {
+    await ensureAudioContextAndWakeLock();
     const code = generateRoomCode();
-    setRoomInput(code);
-    connectToRoom(code, 'host');
-  };
-
-  const handleJoinSpeaker = () => {
-    const cleanCode = (roomInput || urlRoom).trim().toUpperCase();
-    if (!ROOM_CODE_REGEX.test(cleanCode)) {
-      setErrorMessage('Please enter a valid room code (e.g., SYNC-842K).');
-      return;
-    }
-    connectToRoom(cleanCode, 'listener');
-  };
-
-  const handleLeaveRoom = () => {
-    cleanupRoomResources();
-    roleRef.current = null;
-    activeRoomRef.current = '';
-    setJoiningRoom(false);
-    setActiveRoom('');
-    setRole(null);
     setVideoId('');
     setIsPlaying(false);
-    setStatusMessage('');
-    setSearchParams({}, { replace: true });
+    joinChannel(code, 'host');
   };
 
-  const handleUniversalToggle = () => {
+  const handleJoinCustomRoom = async (e) => {
+    e.preventDefault();
+    const clean = roomInput.trim().toUpperCase();
+    if (!ROOM_CODE_REGEX.test(clean)) {
+      setErrorMessage('Enter a valid room code (e.g., SYNC-842K or LIVE).');
+      return;
+    }
+    await ensureAudioContextAndWakeLock();
+    setVideoId('');
+    setIsPlaying(false);
+    joinChannel(clean, 'listener');
+  };
+
+  const handleUniversalToggle = async () => {
+    await ensureAudioContextAndWakeLock();
     const nextCmd = isPlaying ? 'pause' : 'play';
     if (role === 'host') {
       broadcastYouTubeControl(nextCmd);
       return;
     }
-    // Speaker requests room-wide start/stop through authoritative host clock
     channelRef.current?.send({
       type: 'broadcast',
       event: 'universal-signal',
@@ -1112,9 +1015,60 @@ const AudioSync = () => {
     });
   };
 
+  const handleLoadYouTubeVideo = async (e) => {
+    e.preventDefault();
+    await ensureAudioContextAndWakeLock();
+    setErrorMessage('');
+    const extracted = extractYouTubeVideoId(ytInput);
+    if (!extracted) {
+      setErrorMessage(
+        'Only YouTube links or 11-character YouTube video IDs are supported (youtube.com/watch?v=..., youtu.be/..., shorts/...).'
+      );
+      return;
+    }
+
+    if (roleRef.current !== 'host') {
+      roleRef.current = 'host';
+      setRole('host');
+      channelRef.current?.send({
+        type: 'broadcast',
+        event: 'host-claimed',
+        payload: { hostPeerId: peerId },
+      });
+      updatePresenceStatus('Host', 'host');
+    }
+
+    setVideoId(extracted);
+    setIsPlaying(false);
+    channelRef.current?.send({
+      type: 'broadcast',
+      event: 'playback',
+      payload: {
+        action: 'TRACK_CHANGE',
+        videoId: extracted,
+        trackPositionSec: 0,
+        startAtServerMs: getServerNowRef.current(),
+        isPlaying: false,
+        preBuffered: false,
+      },
+    });
+  };
+
+  const handleMicroNudge = (deltaMs) => {
+    const player = ytPlayerRef.current;
+    if (!player || typeof player.getCurrentTime !== 'function') return;
+    const nextOffset = nudgeOffsetMs + deltaMs;
+    setNudgeOffsetMs(nextOffset);
+    const current = player.getCurrentTime() || 0;
+    lastSeekAtRef.current = Date.now();
+    player.seekTo(Math.max(0, current + deltaMs / 1000), true);
+  };
+
   const shareUrl = useMemo(() => {
-    if (!activeRoom || typeof window === 'undefined') return '';
-    return `${window.location.origin}/gamezone/audiosync?room=${encodeURIComponent(activeRoom)}`;
+    if (typeof window === 'undefined') return '';
+    return activeRoom === LIVE_ROOM_ID
+      ? `${window.location.origin}/gamezone/audiosync`
+      : `${window.location.origin}/gamezone/audiosync?room=${encodeURIComponent(activeRoom)}`;
   }, [activeRoom]);
 
   const handleCopyShareLink = async () => {
@@ -1128,45 +1082,6 @@ const AudioSync = () => {
     }
   };
 
-  const handleLoadYouTubeVideo = (e) => {
-    e.preventDefault();
-    setErrorMessage('');
-    const extracted = extractYouTubeVideoId(ytInput);
-    if (!extracted) {
-      setErrorMessage(
-        'Only YouTube links or 11-character YouTube video IDs are supported (youtube.com/watch?v=..., youtu.be/..., shorts/...).'
-      );
-      return;
-    }
-
-    setVideoId(extracted);
-    setIsPlaying(false);
-    if (channelRef.current && role === 'host') {
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'yt-control',
-        payload: {
-          videoId: extracted,
-          targetTime: 0,
-          serverTimestamp: Date.now(),
-          isPlaying: false,
-          executeAt: Date.now(),
-          preBuffered: false,
-        },
-      });
-    }
-  };
-
-  const handleMicroNudge = (deltaMs) => {
-    const player = ytPlayerRef.current;
-    if (!player || typeof player.getCurrentTime !== 'function') return;
-    const nextOffset = nudgeOffsetMs + deltaMs;
-    setNudgeOffsetMs(nextOffset);
-    const current = player.getCurrentTime() || 0;
-    lastSeekAtRef.current = Date.now();
-    player.seekTo(Math.max(0, current + deltaMs / 1000), true);
-  };
-
   return (
     <div className="page-container audiosync-page">
       <Link to="/#gamezone" className="back-link">
@@ -1176,12 +1091,62 @@ const AudioSync = () => {
       <div className="osint-workstation-header">
         <div className="osint-badge-line">
           <Radio size={14} strokeWidth={1.75} />
-          <span>ZERO-STORAGE MULTI-DEVICE YOUTUBE SYNC</span>
+          <span>SERVER-TIMESTAMPED MULTI-DEVICE LIVE ROOM</span>
         </div>
         <h1 className="osint-main-title">AudioSync</h1>
         <p className="osint-subtitle">
-          Synchronize YouTube playback across phones and laptops in real time using latency-compensated timestamps, smooth speed-matching, and universal room controls.
+          Synchronized multi-device playback anchored to an authoritative server clock (`/api/time`) and Supabase Realtime Presence.
         </p>
+      </div>
+
+      {/* Live Server Clock & Offset Telemetry Header */}
+      <div className="audiosync-room-bar">
+        <div>
+          <div className="audiosync-room-meta">
+            <span className="audiosync-room-code-pill">
+              ROOM: {activeRoom === LIVE_ROOM_ID ? 'AUDIOSYNC-LIVE' : activeRoom}
+            </span>
+            <span className="audiosync-role-pill">
+              {role === 'host' ? 'HOST CONTROLLER' : 'LISTENER'} ({channelStatus})
+            </span>
+            <span className="audiosync-wakelock-pill">
+              <Clock size={12} style={{ marginRight: '5px', verticalAlign: 'middle' }} />
+              SERVER: {serverClockStr}
+            </span>
+            <span className="audiosync-wakelock-pill">
+              SYNC OFFSET: {serverTimeSynced ? `${offsetMs >= 0 ? '+' : ''}${offsetMs}ms` : 'CALIBRATING...'}
+              {rttMs !== null ? ` (RTT ${rttMs}ms)` : ''}
+            </span>
+            {role === 'listener' && driftMs !== null && (
+              <span className="audiosync-wakelock-pill">
+                DRIFT: {driftMs >= 0 ? '+' : ''}{driftMs}ms{playbackRate !== 1 ? ` (${playbackRate}x)` : ''}
+              </span>
+            )}
+            <span className="audiosync-wakelock-pill">
+              {wakeLockActive ? 'WAKE LOCK ON' : 'WAKE LOCK OFF'}
+            </span>
+          </div>
+        </div>
+
+        <div className="audiosync-room-actions">
+          <button
+            type="button"
+            className="osint-export-btn"
+            onClick={resyncClock}
+            title="Re-calibrate clock offset against /api/time"
+          >
+            <RefreshCw size={14} />
+            <span>SYNC CLOCK</span>
+          </button>
+          <button
+            type="button"
+            className="osint-export-btn"
+            onClick={handleCopyShareLink}
+          >
+            {copiedLink ? <Check size={14} /> : <Copy size={14} />}
+            <span>{copiedLink ? 'COPIED' : 'COPY LINK'}</span>
+          </button>
+        </div>
       </div>
 
       {errorMessage && (
@@ -1191,293 +1156,243 @@ const AudioSync = () => {
         </div>
       )}
 
-      {!activeRoom ? (
-        <div className="audiosync-lobby-grid">
-          <div className="audiosync-panel">
-            <h2>
-              <Smartphone size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-              Join Existing Room
-            </h2>
-            <p className="audiosync-panel-desc">
-              {needsSpeakerTap && urlRoom
-                ? `Room ${urlRoom} detected. Tap below to unlock mobile audio playback and keep your screen awake.`
-                : 'Enter a room code or scan a host QR code to join as a synchronized speaker.'}
-            </p>
-
-            <div className="form-group">
-              <label htmlFor="audiosync-room-code">Room Code</label>
-              <input
-                id="audiosync-room-code"
-                type="text"
-                value={roomInput}
-                onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                placeholder="e.g., SYNC-842K"
-                maxLength={24}
-                className="tool-input"
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={handleJoinSpeaker}
-              disabled={joiningRoom}
-              className="btn tool-btn audiosync-primary-btn"
-            >
-              {joiningRoom ? 'Connecting to Room...' : 'Tap to Join as Speaker'}
-            </button>
-          </div>
-
-          <div className="audiosync-panel">
-            <h2>
-              <Radio size={18} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-              Host a Sync Room
-            </h2>
-            <p className="audiosync-panel-desc">
-              Generate a room code and QR code to synchronize YouTube playback timing across connected devices.
-            </p>
-            <button
-              type="button"
-              onClick={handleCreateRoom}
-              disabled={joiningRoom}
-              className="btn tool-btn"
-            >
-              {joiningRoom ? 'Creating Room...' : 'Create AudioSync Room'}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="audiosync-room-container">
-          <div className="audiosync-room-bar">
-            <div>
-              <div className="audiosync-room-meta">
-                <span className="audiosync-room-code-pill">ROOM: {activeRoom}</span>
-                <span className="audiosync-role-pill">
-                  {role === 'host' ? 'HOST CONTROLLER' : 'SPEAKER NODE'}
-                </span>
-                <span className="audiosync-wakelock-pill">
-                  {wakeLockActive ? 'WAKE LOCK ACTIVE' : 'STANDARD POWER'}
-                </span>
-                {role === 'listener' && telemetry.rttMs !== null && (
-                  <span className="audiosync-wakelock-pill">
-                    RTT: {telemetry.rttMs}ms
-                    {telemetry.driftMs !== null ? ` | DRIFT: ${telemetry.driftMs > 0 ? '+' : ''}${telemetry.driftMs}ms` : ''}
-                    {telemetry.rate !== 1 ? ` | ${telemetry.rate}x` : ''}
-                  </span>
-                )}
-              </div>
-              {statusMessage && (
-                <p className="audiosync-status-line">{statusMessage}</p>
-              )}
-            </div>
-
-            <div className="audiosync-room-actions">
-              <button
-                type="button"
-                className="osint-export-btn"
-                onClick={handleCopyShareLink}
-              >
-                {copiedLink ? <Check size={14} /> : <Copy size={14} />}
-                <span>{copiedLink ? 'COPIED LINK' : 'COPY LINK'}</span>
-              </button>
-              <button
-                type="button"
-                className="ultron-action-btn"
-                onClick={handleLeaveRoom}
-              >
-                <LogOut size={14} />
-                <span>LEAVE ROOM</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="audiosync-top-grid">
-            <div className="audiosync-panel audiosync-qr-panel">
-              <h3>Scan to Join Room</h3>
-              <div className="audiosync-qr-box">
-                <QRCodeSVG
-                  value={shareUrl}
-                  size={168}
-                  bgColor="#ffffff"
-                  fgColor="#000000"
-                  level="M"
-                />
-              </div>
-              <div className="audiosync-share-url">{shareUrl}</div>
-            </div>
-
-            <div className="audiosync-panel">
-              <h3>
-                <Users size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-                Connected Devices ({presenceList.length})
-              </h3>
-              <div className="audiosync-presence-list">
-                {presenceList.length === 0 ? (
-                  <div className="audiosync-empty">Waiting for devices...</div>
-                ) : (
-                  presenceList.map((device, idx) => (
-                    <div key={device.peerId || idx} className="audiosync-presence-row">
-                      <div>
-                        <strong>{device.displayName}</strong>
-                        <span className="audiosync-presence-role">
-                          {' '}
-                          ({device.role === 'host' ? 'Host' : 'Speaker'})
-                        </span>
-                      </div>
-                      <span
-                        className={`status-badge ${
-                          device.status === 'Ad Break'
-                            ? 'status-mismatch'
-                            : device.status === 'Synced'
-                              ? 'status-match'
-                              : 'status-connecting'
-                        }`}
-                      >
-                        {device.status || 'Standby'}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="audiosync-panel">
-            <div className="audiosync-yt-header">
-              <Tv size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-              <span>YouTube Link Sync</span>
-            </div>
-
-            {role === 'host' && (
-              <form onSubmit={handleLoadYouTubeVideo} className="audiosync-yt-form">
-                <input
-                  type="text"
-                  value={ytInput}
-                  onChange={(e) => setYtInput(e.target.value)}
-                  placeholder="Paste YouTube URL (youtube.com/watch?v=..., youtu.be/..., shorts/...) or 11-char video ID"
-                  className="tool-input"
-                />
-                <button type="submit" className="btn-tool">
-                  Load Video
-                </button>
-              </form>
-            )}
-
-            {adBreakActive && (
-              <div className="auth-alert auth-alert-error" style={{ marginTop: '1rem' }}>
-                <VolumeX size={16} />
-                <span>Waiting for ad to finish... (Auto-muted until main track resumes)</span>
-              </div>
-            )}
-
-            {role === 'listener' && needsPlayTap && (
-              <div style={{ marginTop: '1rem' }}>
-                <button
-                  type="button"
-                  className="btn tool-btn audiosync-primary-btn"
-                  onClick={() => {
-                    setNeedsPlayTap(false);
-                    if (latestSyncRef.current) {
-                      applyListenerSync(latestSyncRef.current, true);
-                    } else {
-                      ytPlayerRef.current?.playVideo?.();
-                    }
-                  }}
-                >
-                  <Play size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                  Tap to Start Synced Playback
-                </button>
-              </div>
-            )}
-
-            <div className="audiosync-yt-stage">
-              {videoId ? (
-                <div id={YOUTUBE_CONTAINER_ID} className="audiosync-yt-frame" />
-              ) : (
-                <div className="audiosync-yt-placeholder">
-                  {role === 'host'
-                    ? 'Paste a YouTube link above to begin synchronized multi-device playback.'
-                    : presenceList.some((d) => d.role === 'host')
-                      ? 'Connected to host. Waiting for host to load a YouTube link...'
-                      : `Connected to ${activeRoom}. Waiting for host to join this room...`}
-                </div>
-              )}
-            </div>
-
-            {videoId && (
-              <div className="audiosync-controls-row">
-                <div className="audiosync-transport">
-                  {role === 'host' && (
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={!ytReady}
-                      onClick={() => broadcastYouTubeControl('resync')}
-                      title="Broadcast exact future timestamp with latency compensation so everyone re-syncs cleanly"
-                    >
-                      <RefreshCw size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                      Sync Play
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    className={`btn ${isPlaying ? 'btn-autron' : ''}`}
-                    disabled={role === 'host' && !ytReady}
-                    onClick={handleUniversalToggle}
-                    title="Send a universal start/stop signal to every device in the room"
-                  >
-                    {isPlaying ? (
-                      <>
-                        <Pause size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                        Universal Pause
-                      </>
-                    ) : (
-                      <>
-                        <Play size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                        Universal Play
-                      </>
-                    )}
-                  </button>
-
-                  {role === 'host' && (
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={!ytReady}
-                      onClick={() => broadcastYouTubeControl('resync', 0)}
-                    >
-                      Restart 0:00
-                    </button>
-                  )}
-                </div>
-
-                <div className="audiosync-nudge-box">
-                  <span className="audiosync-nudge-label">
-                    Acoustic Echo Micro-Seek:
-                  </span>
-                  <button
-                    type="button"
-                    className="copy-btn"
-                    onClick={() => handleMicroNudge(-10)}
-                  >
-                    -10ms
-                  </button>
-                  <span className="audiosync-nudge-value">
-                    {nudgeOffsetMs >= 0 ? `+${nudgeOffsetMs}ms` : `${nudgeOffsetMs}ms`}
-                  </span>
-                  <button
-                    type="button"
-                    className="copy-btn"
-                    onClick={() => handleMicroNudge(10)}
-                  >
-                    +10ms
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+      {/* Mobile Speaker Unlock / Wake Lock Banner */}
+      {!audioUnlocked && (
+        <div style={{ marginBottom: '1.25rem' }}>
+          <button
+            type="button"
+            className="btn tool-btn audiosync-primary-btn"
+            onClick={ensureAudioContextAndWakeLock}
+          >
+            <Volume2 size={15} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+            Tap to Unlock Speaker Audio &amp; Keep Screen Awake
+          </button>
         </div>
       )}
+
+      {/* Minimalistic Connected Listeners Bar + QR & Room Switcher */}
+      <div className="audiosync-top-grid">
+        <div className="audiosync-panel">
+          <h3>
+            <Users size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+            Connected Listeners ({presenceList.length})
+          </h3>
+          <div className="audiosync-presence-list">
+            {presenceList.length === 0 ? (
+              <div className="audiosync-empty">Connecting to room presence...</div>
+            ) : (
+              presenceList.map((device, idx) => (
+                <div key={device.peerId || idx} className="audiosync-presence-row">
+                  <div>
+                    <strong>{device.display_name || device.displayName || 'Operator'}</strong>
+                    <span className="audiosync-presence-role">
+                      {' '}
+                      ({device.role === 'host' ? 'Host' : 'Listener'})
+                    </span>
+                  </div>
+                  <span
+                    className={`status-badge ${
+                      device.status === 'Ad Break'
+                        ? 'status-mismatch'
+                        : device.status === 'Synced' || device.status === 'Host'
+                          ? 'status-match'
+                          : 'status-connecting'
+                    }`}
+                  >
+                    {device.status || 'Standby'}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="audiosync-room-switcher">
+            {role !== 'host' && (
+              <button type="button" className="btn" onClick={handleBecomeHost}>
+                <Crown size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                Take Host Control
+              </button>
+            )}
+            <button type="button" className="btn" onClick={handleCreatePrivateRoom}>
+              <Plus size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+              New Private Room
+            </button>
+            {activeRoom !== LIVE_ROOM_ID && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => {
+                  setVideoId('');
+                  setIsPlaying(false);
+                  joinChannel(LIVE_ROOM_ID, 'listener');
+                }}
+              >
+                Back to Live Room
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={handleJoinCustomRoom} className="audiosync-join-code-form">
+            <input
+              type="text"
+              value={roomInput}
+              onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
+              placeholder="Join room code (e.g. SYNC-842K)"
+              maxLength={24}
+              className="tool-input"
+            />
+            <button type="submit" className="copy-btn">
+              Join
+            </button>
+          </form>
+        </div>
+
+        <div className="audiosync-panel audiosync-qr-panel">
+          <h3>Scan to Join Room</h3>
+          <div className="audiosync-qr-box">
+            <QRCodeSVG
+              value={shareUrl}
+              size={156}
+              bgColor="#ffffff"
+              fgColor="#000000"
+              level="M"
+            />
+          </div>
+          <div className="audiosync-share-url">{shareUrl}</div>
+        </div>
+      </div>
+
+      {/* Synchronized YouTube Player */}
+      <div className="audiosync-panel">
+        <div className="audiosync-yt-header">
+          <Tv size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+          <span>YouTube Link Sync</span>
+        </div>
+
+        <form onSubmit={handleLoadYouTubeVideo} className="audiosync-yt-form">
+          <input
+            type="text"
+            value={ytInput}
+            onChange={(e) => setYtInput(e.target.value)}
+            placeholder="Paste YouTube URL (youtube.com/watch?v=..., youtu.be/..., shorts/...) or 11-char video ID"
+            className="tool-input"
+          />
+          <button type="submit" className="btn-tool">
+            {role === 'host' ? 'Load Video' : 'Load & Host'}
+          </button>
+        </form>
+
+        {adBreakActive && (
+          <div className="auth-alert auth-alert-error" style={{ marginTop: '1rem' }}>
+            <VolumeX size={16} />
+            <span>Waiting for ad to finish... (Auto-muted until main track resumes)</span>
+          </div>
+        )}
+
+        {role === 'listener' && needsPlayTap && (
+          <div style={{ marginTop: '1rem' }}>
+            <button
+              type="button"
+              className="btn tool-btn audiosync-primary-btn"
+              onClick={async () => {
+                await ensureAudioContextAndWakeLock();
+                setNeedsPlayTap(false);
+                if (latestSyncRef.current) {
+                  applyListenerSync(latestSyncRef.current, true);
+                } else {
+                  ytPlayerRef.current?.playVideo?.();
+                }
+              }}
+            >
+              <Play size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+              Tap to Start Synced Playback
+            </button>
+          </div>
+        )}
+
+        <div className="audiosync-yt-stage">
+          {videoId ? (
+            <div id={YOUTUBE_CONTAINER_ID} className="audiosync-yt-frame" />
+          ) : (
+            <div className="audiosync-yt-placeholder">
+              {role === 'host'
+                ? 'Paste a YouTube link above to start synchronized multi-device playback.'
+                : 'Paste a YouTube link above to host, or wait for the host to start playback.'}
+            </div>
+          )}
+        </div>
+
+        {videoId && (
+          <div className="audiosync-controls-row">
+            <div className="audiosync-transport">
+              {role === 'host' && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!ytReady}
+                  onClick={() => broadcastYouTubeControl('resync')}
+                  title="Schedule playback +1.5s ahead against authoritative server time so every device aligns cleanly"
+                >
+                  <RefreshCw size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                  Sync Play
+                </button>
+              )}
+
+              <button
+                type="button"
+                className={`btn ${isPlaying ? 'btn-autron' : ''}`}
+                disabled={role === 'host' && !ytReady}
+                onClick={handleUniversalToggle}
+                title="Send a universal start/stop signal to everyone in the room"
+              >
+                {isPlaying ? (
+                  <>
+                    <Pause size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                    Universal Pause
+                  </>
+                ) : (
+                  <>
+                    <Play size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                    Universal Play
+                  </>
+                )}
+              </button>
+
+              {role === 'host' && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={!ytReady}
+                  onClick={() => broadcastYouTubeControl('resync', 0)}
+                >
+                  Restart 0:00
+                </button>
+              )}
+            </div>
+
+            <div className="audiosync-nudge-box">
+              <span className="audiosync-nudge-label">Acoustic Echo Micro-Seek:</span>
+              <button
+                type="button"
+                className="copy-btn"
+                onClick={() => handleMicroNudge(-10)}
+              >
+                -10ms
+              </button>
+              <span className="audiosync-nudge-value">
+                {nudgeOffsetMs >= 0 ? `+${nudgeOffsetMs}ms` : `${nudgeOffsetMs}ms`}
+              </span>
+              <button
+                type="button"
+                className="copy-btn"
+                onClick={() => handleMicroNudge(10)}
+              >
+                +10ms
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
