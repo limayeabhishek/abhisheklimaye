@@ -2925,8 +2925,23 @@ a {
   margin: 1rem 0 1.5rem 0;
 }
 
+.tod-card-actions-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .tod-next-btn {
-  width: 100%;
+  flex: 1;
+  min-width: 160px;
+}
+
+.tod-skip-btn {
+  margin: 0;
+  padding: 0.8rem 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .tod-awaiting-choice,

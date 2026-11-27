@@ -186,7 +186,10 @@ const AudioSync = () => {
   const heartbeatIntervalRef = useRef(null);
   const adCheckIntervalRef = useRef(null);
   const scheduledActionTimeoutRef = useRef(null);
+  const clockPingTimersRef = useRef([]);
   const clockOffsetMsRef = useRef(0);
+  const bestRttMsRef = useRef(Infinity);
+  const lastSeekAtRef = useRef(0);
   const latestSyncRef = useRef(null);
   const prevPlayerTimeRef = useRef(null);
   const freezeTicksRef = useRef(0);
@@ -312,6 +315,11 @@ const AudioSync = () => {
       clearTimeout(scheduledActionTimeoutRef.current);
       scheduledActionTimeoutRef.current = null;
     }
+    clockPingTimersRef.current.forEach((t) => clearTimeout(t));
+    clockPingTimersRef.current = [];
+    bestRttMsRef.current = Infinity;
+    clockOffsetMsRef.current = 0;
+    lastSeekAtRef.current = 0;
 
     if (channelRef.current) {
       if (supabase) {
@@ -416,12 +424,13 @@ const AudioSync = () => {
                   const hostTime = ytPlayerRef.current?.getCurrentTime?.() || 0;
                   channelRef.current.send({
                     type: 'broadcast',
-                    event: 'yt-heartbeat',
+                    event: 'yt-control',
                     payload: {
                       videoId: videoIdRef.current,
                       hostTime,
                       serverTimestamp: Date.now(),
                       isPlaying: nowPlaying,
+                      executeAt: Date.now(),
                     },
                   });
                 }
@@ -453,48 +462,66 @@ const AudioSync = () => {
       }
       setIsPlaying(Boolean(payload.isPlaying));
 
-      const execute = () => {
-        const player = ytPlayerRef.current;
-        if (!player || typeof player.seekTo !== 'function') return;
-
-        const now = getServerNow();
-        const elapsed = payload.isPlaying
-          ? Math.max(0, (now - payload.serverTimestamp) / 1000)
-          : 0;
-        const targetTime = Math.max(
-          0,
-          payload.hostTime + elapsed + nudgeOffsetMsRef.current / 1000
-        );
-
-        player.seekTo(targetTime, true);
-        if (payload.isPlaying) {
-          player.playVideo();
-          updatePresenceStatus(adBreakRef.current ? 'Ad Break' : 'Synced');
-          setTimeout(() => {
-            const st = ytPlayerRef.current?.getPlayerState?.();
-            const ytPlaying = window.YT?.PlayerState?.PLAYING ?? 1;
-            const ytBuffering = window.YT?.PlayerState?.BUFFERING ?? 3;
-            if (st !== undefined && st !== ytPlaying && st !== ytBuffering) {
-              setNeedsPlayTap(true);
-            }
-          }, 900);
-        } else {
-          player.pauseVideo();
-          setNeedsPlayTap(false);
-          updatePresenceStatus('Paused');
-        }
-      };
-
       if (scheduledActionTimeoutRef.current) {
         clearTimeout(scheduledActionTimeoutRef.current);
         scheduledActionTimeoutRef.current = null;
       }
 
-      if (!immediate && payload.executeAt) {
-        const delayMs = Math.max(0, payload.executeAt - getServerNow());
-        scheduledActionTimeoutRef.current = setTimeout(execute, delayMs);
+      const player = ytPlayerRef.current;
+      if (!player || typeof player.seekTo !== 'function') return;
+
+      // Always pause immediately when host pauses (never wait for executeAt)
+      if (!payload.isPlaying) {
+        player.pauseVideo?.();
+        const current = player.getCurrentTime?.() || 0;
+        const targetTime = Math.max(0, payload.hostTime + nudgeOffsetMsRef.current / 1000);
+        if (Math.abs(current - targetTime) > 0.2) {
+          lastSeekAtRef.current = Date.now();
+          player.seekTo(targetTime, true);
+          player.pauseVideo?.();
+        }
+        setNeedsPlayTap(false);
+        updatePresenceStatus('Paused');
+        return;
+      }
+
+      const executePlay = () => {
+        const p = ytPlayerRef.current;
+        if (!p || typeof p.seekTo !== 'function') return;
+
+        const now = getServerNow();
+        const elapsed = Math.max(0, (now - payload.serverTimestamp) / 1000);
+        const targetTime = Math.max(
+          0,
+          payload.hostTime + elapsed + nudgeOffsetMsRef.current / 1000
+        );
+        const current = p.getCurrentTime?.() || 0;
+        if (Math.abs(current - targetTime) > 0.25) {
+          lastSeekAtRef.current = Date.now();
+          p.seekTo(targetTime + 0.06, true);
+        }
+        p.playVideo?.();
+        updatePresenceStatus(adBreakRef.current ? 'Ad Break' : 'Synced');
+        setTimeout(() => {
+          const st = ytPlayerRef.current?.getPlayerState?.();
+          const ytPlaying = window.YT?.PlayerState?.PLAYING ?? 1;
+          const ytBuffering = window.YT?.PlayerState?.BUFFERING ?? 3;
+          if (st !== undefined && st !== ytPlaying && st !== ytBuffering) {
+            setNeedsPlayTap(true);
+          }
+        }, 900);
+      };
+
+      const delayMs = !immediate && payload.executeAt ? payload.executeAt - getServerNow() : 0;
+      if (delayMs > 40) {
+        // Pre-seek & buffer before executeAt so playback starts tightly at targetTime
+        const preTarget = Math.max(0, payload.hostTime + nudgeOffsetMsRef.current / 1000);
+        lastSeekAtRef.current = Date.now();
+        player.seekTo(preTarget, true);
+        player.pauseVideo?.();
+        scheduledActionTimeoutRef.current = setTimeout(executePlay, delayMs);
       } else {
-        execute();
+        executePlay();
       }
     },
     [getServerNow, updatePresenceStatus]
@@ -504,7 +531,7 @@ const AudioSync = () => {
     applyListenerSyncRef.current = applyListenerSync;
   }, [applyListenerSync]);
 
-  // Host 5-second heartbeat loop
+  // Host 2-second heartbeat loop for tight multi-device sync
   useEffect(() => {
     if (!activeRoom || role !== 'host') return;
 
@@ -532,7 +559,7 @@ const AudioSync = () => {
           isPlaying: Boolean(playingNow),
         },
       });
-    }, 5000);
+    }, 2000);
 
     return () => {
       if (heartbeatIntervalRef.current) {
@@ -542,7 +569,7 @@ const AudioSync = () => {
     };
   }, [activeRoom, role]);
 
-  // Listener 1-second Ad-Recovery & Drift Check loop
+  // Listener 1-second Ad-Recovery & Tight Drift Check loop
   useEffect(() => {
     if (!activeRoom || role !== 'listener') return;
 
@@ -571,6 +598,7 @@ const AudioSync = () => {
       const timeDelta = actualTime - prevTime;
       const playerState = player.getPlayerState?.();
       const ytPlayingState = window.YT?.PlayerState?.PLAYING ?? 1;
+      const seekCooldownActive = Date.now() - lastSeekAtRef.current < 1800;
 
       if (!adBreakRef.current) {
         if (timeDelta < 0.15 && drift > 1.5) {
@@ -583,15 +611,17 @@ const AudioSync = () => {
           }
         } else {
           freezeTicksRef.current = 0;
-          if (drift > 1.5 && playerState === ytPlayingState) {
-            player.seekTo(expectedTime, true);
+          if (!seekCooldownActive && drift > 0.35 && playerState === ytPlayingState) {
+            lastSeekAtRef.current = Date.now();
+            player.seekTo(expectedTime + 0.08, true);
           }
         }
       } else if (timeDelta >= 0.25 && playerState === ytPlayingState) {
         adBreakRef.current = false;
         freezeTicksRef.current = 0;
         setAdBreakActive(false);
-        player.seekTo(expectedTime, true);
+        lastSeekAtRef.current = Date.now();
+        player.seekTo(expectedTime + 0.08, true);
         player.unMute?.();
         updatePresenceStatus('Synced');
       }
@@ -669,19 +699,32 @@ const AudioSync = () => {
         const hostNow = Number(payload.hostNow);
         if (!Number.isFinite(clientSentAt) || !Number.isFinite(hostNow)) return;
         const rtt = Math.max(0, Date.now() - clientSentAt);
-        clockOffsetMsRef.current = hostNow + rtt / 2 - Date.now();
+        if (rtt <= bestRttMsRef.current + 15) {
+          bestRttMsRef.current = Math.min(bestRttMsRef.current, rtt);
+          clockOffsetMsRef.current = hostNow + rtt / 2 - Date.now();
+        }
         if (roleRef.current === 'listener' && !latestSyncRef.current) {
           updatePresenceStatus('Standby');
         }
       });
 
+      const sendClockPingBurst = () => {
+        clockPingTimersRef.current.forEach((t) => clearTimeout(t));
+        clockPingTimersRef.current = [0, 250, 500, 750].map((delay) =>
+          setTimeout(() => {
+            channel.send({
+              type: 'broadcast',
+              event: 'clock-ping',
+              payload: { fromPeerId: peerId, clientSentAt: Date.now() },
+            });
+          }, delay)
+        );
+      };
+
       channel.on('broadcast', { event: 'host-ready' }, () => {
         if (roleRef.current !== 'listener') return;
-        channel.send({
-          type: 'broadcast',
-          event: 'clock-ping',
-          payload: { fromPeerId: peerId, clientSentAt: Date.now() },
-        });
+        bestRttMsRef.current = Infinity;
+        sendClockPingBurst();
         channel.send({
           type: 'broadcast',
           event: 'peer-join',
@@ -692,7 +735,7 @@ const AudioSync = () => {
       channel.on('broadcast', { event: 'yt-control' }, ({ payload }) => {
         const sanitized = sanitizeSyncPayload(payload);
         if (!sanitized) return;
-        applyListenerSync(sanitized, false);
+        applyListenerSync(sanitized, !sanitized.isPlaying);
       });
 
       channel.on('broadcast', { event: 'yt-heartbeat' }, ({ payload }) => {
@@ -710,7 +753,18 @@ const AudioSync = () => {
         if (!player || typeof player.getCurrentTime !== 'function') return;
 
         if (!sanitized.isPlaying) {
+          if (scheduledActionTimeoutRef.current) {
+            clearTimeout(scheduledActionTimeoutRef.current);
+            scheduledActionTimeoutRef.current = null;
+          }
           player.pauseVideo?.();
+          const current = player.getCurrentTime() || 0;
+          if (Math.abs(current - sanitized.hostTime) > 0.25) {
+            lastSeekAtRef.current = Date.now();
+            player.seekTo(sanitized.hostTime, true);
+            player.pauseVideo?.();
+          }
+          setNeedsPlayTap(false);
           updatePresenceStatus('Paused');
           return;
         }
@@ -721,8 +775,10 @@ const AudioSync = () => {
             Math.max(0, (getServerNow() - sanitized.serverTimestamp) / 1000) +
             nudgeOffsetMsRef.current / 1000;
           const actualTime = player.getCurrentTime() || 0;
-          if (Math.abs(expectedTime - actualTime) > 1.5) {
-            player.seekTo(expectedTime, true);
+          const seekCooldownActive = Date.now() - lastSeekAtRef.current < 1800;
+          if (!seekCooldownActive && Math.abs(expectedTime - actualTime) > 0.35) {
+            lastSeekAtRef.current = Date.now();
+            player.seekTo(expectedTime + 0.08, true);
           }
           if (player.getPlayerState?.() !== window.YT?.PlayerState?.PLAYING) {
             player.playVideo?.();
@@ -792,11 +848,7 @@ const AudioSync = () => {
               payload: { peerId },
             });
           } else {
-            channel.send({
-              type: 'broadcast',
-              event: 'clock-ping',
-              payload: { fromPeerId: peerId, clientSentAt: Date.now() },
-            });
+            sendClockPingBurst();
             channel.send({
               type: 'broadcast',
               event: 'peer-join',
@@ -878,9 +930,40 @@ const AudioSync = () => {
           ? player.getCurrentTime() || 0
           : 0;
 
-    const now = Date.now();
-    const executeAt = now + 1500;
+    if (scheduledActionTimeoutRef.current) {
+      clearTimeout(scheduledActionTimeoutRef.current);
+      scheduledActionTimeoutRef.current = null;
+    }
 
+    const now = Date.now();
+
+    // Pause immediately across host and all speakers with zero artificial delay
+    if (!nextPlaying) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'yt-control',
+        payload: {
+          videoId,
+          hostTime,
+          serverTimestamp: now,
+          isPlaying: false,
+          executeAt: now,
+        },
+      });
+      setIsPlaying(false);
+      isPlayingRef.current = false;
+      if (player) {
+        hostManualSyncBlockRef.current = true;
+        player.pauseVideo?.();
+        setTimeout(() => {
+          hostManualSyncBlockRef.current = false;
+        }, 400);
+      }
+      return;
+    }
+
+    // Play / Restart: schedule 900ms ahead so speakers pre-seek & start tightly together
+    const executeAt = now + 900;
     channelRef.current.send({
       type: 'broadcast',
       event: 'yt-control',
@@ -888,31 +971,24 @@ const AudioSync = () => {
         videoId,
         hostTime,
         serverTimestamp: now,
-        isPlaying: nextPlaying,
+        isPlaying: true,
         executeAt,
       },
     });
 
-    setIsPlaying(nextPlaying);
-
-    if (scheduledActionTimeoutRef.current) {
-      clearTimeout(scheduledActionTimeoutRef.current);
-    }
-    scheduledActionTimeoutRef.current = setTimeout(() => {
-      if (!ytPlayerRef.current) return;
+    setIsPlaying(true);
+    isPlayingRef.current = true;
+    if (player) {
       hostManualSyncBlockRef.current = true;
-      if (explicitTime !== undefined) {
-        ytPlayerRef.current.seekTo?.(explicitTime, true);
-      }
-      if (nextPlaying) {
-        ytPlayerRef.current.playVideo?.();
-      } else {
-        ytPlayerRef.current.pauseVideo?.();
-      }
-      setTimeout(() => {
-        hostManualSyncBlockRef.current = false;
-      }, 600);
-    }, 1500);
+      player.seekTo?.(hostTime, true);
+      player.pauseVideo?.();
+      scheduledActionTimeoutRef.current = setTimeout(() => {
+        ytPlayerRef.current?.playVideo?.();
+        setTimeout(() => {
+          hostManualSyncBlockRef.current = false;
+        }, 500);
+      }, 900);
+    }
   };
 
   const handleLoadYouTubeVideo = (e) => {
@@ -1192,7 +1268,7 @@ const AudioSync = () => {
                       onClick={() => broadcastYouTubeControl(true)}
                     >
                       <Play size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                      Sync Play (+1.5s)
+                      Sync Play
                     </button>
                     <button
                       type="button"

@@ -38,6 +38,12 @@ export const GAMEZONE_ITEMS = [
     description: 'AI-batched escalated party deck featuring spicy Partner (couples) and unhinged Friends (group) modes.',
     route: '/gamezone/truth-or-dare',
   },
+  {
+    id: 'never-have-i-ever',
+    title: 'Never Have I Ever',
+    description: '10-question AI party round across Childhood, Adults, College & Friends, and Relationships genres.',
+    route: '/gamezone/never-have-i-ever',
+  },
 ];
 
 export const PROJECTS_ITEMS = [

@@ -115,7 +115,7 @@ async function queryGemini(userMessage, conversationHistory = []) {
     throw {
       status: 502,
       code: 'NETWORK_ERROR',
-      message: 'Connection to Ultron neural core was interrupted: ' + netErr.message
+      message: 'Connection to Ultron neural core was interrupted: ' + String(netErr.message || 'network failure').replace(/key=[^&\s]+/gi, 'key=[REDACTED]')
     };
   }
 

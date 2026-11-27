@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Flame, Users, Heart, RotateCcw } from 'lucide-react';
+import { AlertCircle, Flame, Users, Heart, RotateCcw, SkipForward } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
 
 function getIntensityMeta(progressRatio, mode) {
@@ -31,7 +31,7 @@ function getIntensityMeta(progressRatio, mode) {
 const TruthOrDare = () => {
   const { session } = useAuth();
 
-  // Session & deck state (unlimited plays, rolling 10-game AI context memory on server)
+  // Session & deck state
   const [selectedMode, setSelectedMode] = useState(null); // 'partner' | 'friends'
   const [generating, setGenerating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -40,6 +40,7 @@ const TruthOrDare = () => {
   // Gameplay state
   const [truthIndex, setTruthIndex] = useState(0);
   const [dareIndex, setDareIndex] = useState(0);
+  const [completedTurns, setCompletedTurns] = useState(0);
   const [activeCard, setActiveCard] = useState(null); // { type: 'TRUTH' | 'DARE', text: string, turn: number }
 
   const handleStartMode = async (mode) => {
@@ -76,6 +77,7 @@ const TruthOrDare = () => {
       });
       setTruthIndex(0);
       setDareIndex(0);
+      setCompletedTurns(0);
       setActiveCard(null);
     } catch (err) {
       setErrorMsg(err?.message || 'Network error while generating prompt deck.');
@@ -89,36 +91,40 @@ const TruthOrDare = () => {
     return deck.truths.length + deck.dares.length;
   }, [deck]);
 
-  const turnsTaken = truthIndex + dareIndex;
   const truthsLeft = deck ? deck.truths.length - truthIndex : 0;
   const daresLeft = deck ? deck.dares.length - dareIndex : 0;
   const isDeckFinished = Boolean(deck && truthsLeft === 0 && daresLeft === 0 && !activeCard);
 
-  const progressRatio = totalCards > 0 ? Math.min(1, turnsTaken / totalCards) : 0;
+  // Progress & intensity advance ONLY on completed turns (never when skipped)
+  const progressRatio = totalCards > 0 ? Math.min(1, completedTurns / totalCards) : 0;
   const intensity = getIntensityMeta(progressRatio, selectedMode);
 
   const handleDrawCard = (choice) => {
     if (!deck) return;
     if (choice === 'TRUTH' && truthIndex < deck.truths.length) {
-      const nextTurn = turnsTaken + 1;
       setActiveCard({
         type: 'TRUTH',
         text: deck.truths[truthIndex],
-        turn: nextTurn,
+        turn: completedTurns + 1,
       });
       setTruthIndex((prev) => prev + 1);
     } else if (choice === 'DARE' && dareIndex < deck.dares.length) {
-      const nextTurn = turnsTaken + 1;
       setActiveCard({
         type: 'DARE',
         text: deck.dares[dareIndex],
-        turn: nextTurn,
+        turn: completedTurns + 1,
       });
       setDareIndex((prev) => prev + 1);
     }
   };
 
   const handleNextTurn = () => {
+    setCompletedTurns((prev) => prev + 1);
+    setActiveCard(null);
+  };
+
+  const handleSkipTurn = () => {
+    // Do NOT increment completedTurns so progress bar and intensity do not increase
     setActiveCard(null);
   };
 
@@ -127,6 +133,7 @@ const TruthOrDare = () => {
     setSelectedMode(null);
     setTruthIndex(0);
     setDareIndex(0);
+    setCompletedTurns(0);
     setActiveCard(null);
     setErrorMsg('');
   };
@@ -144,10 +151,6 @@ const TruthOrDare = () => {
             <span>ESCALATED AI PARTY DECK</span>
           </div>
           <h1 className="osint-main-title">Truth or Dare</h1>
-        </div>
-
-        <div className="tod-quota-pill">
-          Unlimited Plays &bull; 10-Game Fresh Memory
         </div>
       </div>
 
@@ -170,7 +173,7 @@ const TruthOrDare = () => {
                 GENERATING FRESH ESCALATED DECK // STAND BY...
               </div>
               <div className="osint-loading-subtext">
-                Batching new non-repeating prompts using your 10-game context memory.
+                Batching the entire progressive deck in one single call so turns stay instant.
               </div>
             </div>
           ) : (
@@ -221,7 +224,7 @@ const TruthOrDare = () => {
           <div className="tod-progress-header">
             <div className="tod-progress-meta">
               <span className="tod-turn-label">
-                Turn {turnsTaken} / {totalCards}
+                Turn {completedTurns} / {totalCards}
               </span>
               <span className={`tod-intensity-label ${intensity.tier}`}>
                 {intensity.label}
@@ -240,7 +243,7 @@ const TruthOrDare = () => {
               <div className="tod-complete-state">
                 <div className="tod-card-type-badge">DECK COMPLETE</div>
                 <p className="tod-prompt-text">
-                  All {totalCards} escalated prompts in {selectedMode === 'partner' ? 'Partner' : 'Friends'} mode have been played.
+                  All {totalCards} prompts in {selectedMode === 'partner' ? 'Partner' : 'Friends'} mode have been drawn ({completedTurns} completed).
                 </p>
                 <div className="tod-complete-actions">
                   <button
@@ -271,13 +274,24 @@ const TruthOrDare = () => {
                   </span>
                 </div>
                 <p className="tod-prompt-text">{activeCard.text}</p>
-                <button
-                  type="button"
-                  className="btn-tool tod-next-btn"
-                  onClick={handleNextTurn}
-                >
-                  Next Turn &rarr;
-                </button>
+                <div className="tod-card-actions-row">
+                  <button
+                    type="button"
+                    className="btn-tool tod-next-btn"
+                    onClick={handleNextTurn}
+                  >
+                    Next Turn &rarr;
+                  </button>
+                  <button
+                    type="button"
+                    className="btn tod-skip-btn"
+                    onClick={handleSkipTurn}
+                    title="Skip without advancing progress or intensity"
+                  >
+                    <SkipForward size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                    Skip
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="tod-awaiting-choice">
@@ -285,7 +299,7 @@ const TruthOrDare = () => {
                   {selectedMode === 'partner' ? 'PARTNER MODE' : 'FRIENDS MODE'}
                 </div>
                 <p className="tod-prompt-text">
-                  Choose <strong>TRUTH</strong> or <strong>DARE</strong> below to draw Turn {turnsTaken + 1}.
+                  Choose <strong>TRUTH</strong> or <strong>DARE</strong> below to draw Turn {completedTurns + 1}.
                 </p>
                 <div className="tod-remaining-counts">
                   Remaining in Deck: {truthsLeft} Truths &bull; {daresLeft} Dares

@@ -128,6 +128,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { supabaseAdmin, userId } = auth;
   const payload = parseJsonBody(req);
+  if (JSON.stringify(payload).length > 4096) {
+    res.status(413).json({ error: 'PAYLOAD_TOO_LARGE', message: 'Request body too large.' });
+    return;
+  }
   const mode = payload.mode === 'partner' || payload.mode === 'friends' ? payload.mode : null;
 
   if (!mode) {

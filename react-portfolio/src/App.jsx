@@ -14,6 +14,7 @@ import PortScanner from './pages/PortScanner';
 import PassCheck from './pages/PassCheck';
 import AudioSync from './pages/AudioSync';
 import TruthOrDare from './pages/TruthOrDare';
+import NeverHaveIEver from './pages/NeverHaveIEver';
 import Ultron from './pages/Ultron';
 import Thoughts from './pages/Thoughts';
 import ThoughtDetail from './pages/ThoughtDetail';
@@ -75,6 +76,14 @@ function App() {
               element={
                 <ActiveUserGuard>
                   <TruthOrDare />
+                </ActiveUserGuard>
+              }
+            />
+            <Route
+              path="/gamezone/never-have-i-ever"
+              element={
+                <ActiveUserGuard>
+                  <NeverHaveIEver />
                 </ActiveUserGuard>
               }
             />
