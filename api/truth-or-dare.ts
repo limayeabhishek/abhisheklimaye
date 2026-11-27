@@ -129,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const spec = MODE_CONFIG[mode];
   const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-  const modelName = process.env.TRUTH_OR_DARE_MODEL || 'gemini-2.5-flash-lite';
+  const modelName = process.env.TRUTH_OR_DARE_MODEL || 'gemini-3.5-flash-lite';
 
   let truths: string[] = [];
   let dares: string[] = [];
