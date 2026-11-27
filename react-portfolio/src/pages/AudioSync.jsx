@@ -853,7 +853,7 @@ const AudioSync = () => {
 
   const shareUrl = useMemo(() => {
     if (!activeRoom || typeof window === 'undefined') return '';
-    return `${window.location.origin}/toolkit/audiosync?room=${encodeURIComponent(activeRoom)}`;
+    return `${window.location.origin}/gamezone/audiosync?room=${encodeURIComponent(activeRoom)}`;
   }, [activeRoom]);
 
   const handleCopyShareLink = async () => {
@@ -954,8 +954,8 @@ const AudioSync = () => {
 
   return (
     <div className="page-container audiosync-page">
-      <Link to="/#toolkit" className="back-link">
-        &larr; Back to Toolkit
+      <Link to="/#gamezone" className="back-link">
+        &larr; Back to Gamezone
       </Link>
 
       <div className="osint-workstation-header">

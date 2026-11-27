@@ -23,11 +23,20 @@ export const TOOLKIT_ITEMS = [
     description: 'Client-side credential entropy, character-set diversity, and brute-force crack-time evaluator.',
     route: '/toolkit/pass-check',
   },
+];
+
+export const GAMEZONE_ITEMS = [
   {
     id: 'audiosync',
     title: 'AudioSync',
-    description: 'Real-time multi-device speaker sync room for shared listening across phones and laptops via QR code.',
-    route: '/toolkit/audiosync',
+    description: 'Real-time multi-device speaker sync room for shared YouTube listening across phones and laptops via QR code.',
+    route: '/gamezone/audiosync',
+  },
+  {
+    id: 'truth-or-dare',
+    title: 'Truth or Dare',
+    description: 'AI-batched escalated party deck featuring spicy Partner (couples) and unhinged Friends (group) modes.',
+    route: '/gamezone/truth-or-dare',
   },
 ];
 

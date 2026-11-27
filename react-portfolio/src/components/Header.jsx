@@ -57,6 +57,9 @@ const Header = () => {
         <NavLink to="/#toolkit" onClick={(e) => handleSectionClick(e, 'toolkit')}>
           Toolkit
         </NavLink>
+        <NavLink to="/#gamezone" onClick={(e) => handleSectionClick(e, 'gamezone')}>
+          Gamezone
+        </NavLink>
         <NavLink to="/#projects" onClick={(e) => handleSectionClick(e, 'projects')}>
           Projects
         </NavLink>

@@ -7,9 +7,11 @@ import { useAuth } from '../context/useAuth';
 const Admin = () => {
   const { session, user } = useAuth();
   const [profiles, setProfiles] = useState([]);
+  const [quotasByUser, setQuotasByUser] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [togglingId, setTogglingId] = useState(null);
+  const [resettingId, setResettingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   const fetchProfiles = useCallback(async () => {
@@ -21,15 +23,31 @@ const Admin = () => {
     setLoading(true);
     setErrorMsg('');
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('id, email, display_name, role, status, created_at')
-        .order('created_at', { ascending: false });
+      const [profilesRes, quotasRes] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, email, display_name, role, status, created_at')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('truth_or_dare_sessions')
+          .select('user_id, games_played, max_games'),
+      ]);
 
-      if (error) {
-        setErrorMsg(error.message || 'Failed to load user directory.');
+      if (profilesRes.error) {
+        setErrorMsg(profilesRes.error.message || 'Failed to load user directory.');
       } else {
-        setProfiles(data || []);
+        setProfiles(profilesRes.data || []);
+      }
+
+      if (!quotasRes.error && Array.isArray(quotasRes.data)) {
+        const map = {};
+        quotasRes.data.forEach((q) => {
+          map[q.user_id] = {
+            games_played: q.games_played ?? 0,
+            max_games: q.max_games ?? 10,
+          };
+        });
+        setQuotasByUser(map);
       }
     } catch (err) {
       setErrorMsg(err?.message || 'Unexpected error fetching users.');
@@ -80,6 +98,50 @@ const Admin = () => {
       setErrorMsg(err?.message || 'Network error while updating user status.');
     } finally {
       setTogglingId(null);
+    }
+  };
+
+  const handleResetQuota = async (targetUser) => {
+    if (!session?.access_token) {
+      setErrorMsg('Session expired. Please sign in again.');
+      return;
+    }
+
+    setResettingId(targetUser.id);
+    setErrorMsg('');
+
+    try {
+      const response = await fetch('/api/admin/toggle-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          userId: targetUser.id,
+          action: 'reset-quota',
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setErrorMsg(data.message || 'Failed to reset user game quota.');
+        return;
+      }
+
+      if (data.quota) {
+        setQuotasByUser((prev) => ({
+          ...prev,
+          [targetUser.id]: {
+            games_played: data.quota.games_played ?? 0,
+            max_games: data.quota.max_games ?? 10,
+          },
+        }));
+      }
+    } catch (err) {
+      setErrorMsg(err?.message || 'Network error while resetting quota.');
+    } finally {
+      setResettingId(null);
     }
   };
 
@@ -177,6 +239,7 @@ const Admin = () => {
               <th>Email</th>
               <th>Role</th>
               <th>Joined Date</th>
+              <th>Games</th>
               <th>Status</th>
               <th>Action</th>
             </tr>
@@ -184,13 +247,13 @@ const Admin = () => {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="6" className="admin-table-empty">
+                <td colSpan="7" className="admin-table-empty">
                   LOADING OPERATOR RECORDS...
                 </td>
               </tr>
             ) : filteredProfiles.length === 0 ? (
               <tr>
-                <td colSpan="6" className="admin-table-empty">
+                <td colSpan="7" className="admin-table-empty">
                   No matching user accounts found.
                 </td>
               </tr>
@@ -198,6 +261,7 @@ const Admin = () => {
               filteredProfiles.map((row) => {
                 const isSelf = row.id === user?.id;
                 const isDisabling = row.status === 'active';
+                const quota = quotasByUser[row.id] || { games_played: 0, max_games: 10 };
                 return (
                   <tr key={row.id}>
                     <td>{row.display_name || '—'}</td>
@@ -213,6 +277,24 @@ const Admin = () => {
                             day: 'numeric',
                           })
                         : '—'}
+                    </td>
+                    <td>
+                      <div className="admin-quota-cell">
+                        <span>
+                          {quota.games_played} / {quota.max_games}
+                        </span>
+                        {quota.games_played > 0 && (
+                          <button
+                            type="button"
+                            className="copy-btn"
+                            disabled={resettingId === row.id}
+                            onClick={() => handleResetQuota(row)}
+                            title="Reset Truth or Dare game quota to 0"
+                          >
+                            {resettingId === row.id ? '...' : 'Reset'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <span

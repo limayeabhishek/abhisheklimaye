@@ -5,6 +5,7 @@ import { useAuth } from '../context/useAuth';
 import { supabase } from '../lib/supabase';
 import {
   TOOLKIT_ITEMS,
+  GAMEZONE_ITEMS,
   PROJECTS_ITEMS,
   FALLBACK_PUBLIC_THOUGHT,
   LOCKED_PRIVATE_THOUGHT_PREVIEW,
@@ -154,6 +155,33 @@ const Landing = () => {
               <div className={`tool-card ${!isActiveUser ? 'locked-card' : ''}`}>
                 <h3>{tool.title}</h3>
                 <p>{tool.description}</p>
+                {!isActiveUser && (
+                  <div className="lock-overlay" aria-label="Login to Unlock">
+                    <span className="lock-badge">
+                      <Lock size={14} strokeWidth={2} />
+                      <span>Login to Unlock</span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section id="gamezone" className="content-section">
+        <h2>Gamezone</h2>
+        <div className="projects-grid">
+          {GAMEZONE_ITEMS.map((item) => (
+            <Link
+              key={item.id}
+              to={isActiveUser ? item.route : `/login?redirect=${encodeURIComponent(item.route)}`}
+              onClick={(e) => handleToolkitClick(e, item.route)}
+              className={`project-card-link ${!isActiveUser ? 'is-locked' : ''}`}
+            >
+              <div className={`tool-card ${!isActiveUser ? 'locked-card' : ''}`}>
+                <h3>{item.title}</h3>
+                <p>{item.description}</p>
                 {!isActiveUser && (
                   <div className="lock-overlay" aria-label="Login to Unlock">
                     <span className="lock-badge">

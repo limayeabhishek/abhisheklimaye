@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.api.json"
   },
   "dependencies": {
+    "@google/genai": "^3.6.1",
     "@sendgrid/mail": "^8.1.6",
     "@supabase/supabase-js": "^2.50.0",
     "cors": "^2.8.5",

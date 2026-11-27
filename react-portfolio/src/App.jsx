@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import ActiveUserGuard from './components/ActiveUserGuard';
 import Header from './components/Header';
@@ -7,17 +7,24 @@ import About from './pages/About';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
 import Toolkit from './pages/Toolkit';
+import Gamezone from './pages/Gamezone';
 import OsintPlatform from './pages/OsintPlatform';
 import HashCalculator from './pages/HashCalculator';
 import PortScanner from './pages/PortScanner';
 import PassCheck from './pages/PassCheck';
 import AudioSync from './pages/AudioSync';
+import TruthOrDare from './pages/TruthOrDare';
 import Ultron from './pages/Ultron';
 import Thoughts from './pages/Thoughts';
 import ThoughtDetail from './pages/ThoughtDetail';
 import Contact from './pages/Contact';
 import Login from './pages/Login';
 import Admin from './pages/Admin';
+
+const AudioSyncLegacyRedirect = () => {
+  const location = useLocation();
+  return <Navigate to={`/gamezone/audiosync${location.search || ''}`} replace />;
+};
 
 function App() {
   return (
@@ -46,20 +53,38 @@ function App() {
               }
             />
 
+            {/* Protected Gamezone Routes */}
+            <Route
+              path="/gamezone"
+              element={
+                <ActiveUserGuard>
+                  <Gamezone />
+                </ActiveUserGuard>
+              }
+            />
+            <Route
+              path="/gamezone/audiosync"
+              element={
+                <ActiveUserGuard>
+                  <AudioSync />
+                </ActiveUserGuard>
+              }
+            />
+            <Route
+              path="/gamezone/truth-or-dare"
+              element={
+                <ActiveUserGuard>
+                  <TruthOrDare />
+                </ActiveUserGuard>
+              }
+            />
+
             {/* Protected Toolkit Routes */}
             <Route
               path="/toolkit"
               element={
                 <ActiveUserGuard>
                   <Toolkit />
-                </ActiveUserGuard>
-              }
-            />
-            <Route
-              path="/toolkit/audiosync"
-              element={
-                <ActiveUserGuard>
-                  <AudioSync />
                 </ActiveUserGuard>
               }
             />
@@ -97,6 +122,7 @@ function App() {
             />
 
             {/* Legacy / Alias Routes */}
+            <Route path="/toolkit/audiosync" element={<AudioSyncLegacyRedirect />} />
             <Route
               path="/osint"
               element={
