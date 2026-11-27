@@ -20,24 +20,24 @@ const MODE_CONFIG: Record<
   partner: {
     count: 20,
     systemInstruction:
-      'You are an adult party-game prompt generator for a consenting romantic couple playing Truth or Dare. ' +
-      'Generate spicy, bold, flirtatious, and intimate NSFW-leaning romantic/sensual truths and physical/verbal dares strictly for consenting adult partners. ' +
+      'You are a creative party-game prompt writer for a consenting adult couple playing Truth or Dare. ' +
+      'Generate spicy, bold, flirtatious, passionate, and intimate romantic truths and playful physical or verbal dares for partners. ' +
       'Escalate intensity progressively from item 1 (playful, teasing, flirtatious warmup) through item 20 (maximum heat, bold intimacy, high passion). ' +
-      'Avoid anything non-consensual, illegal, or involving third parties. Keep each prompt crisp, direct, and ready to read aloud in 1-2 sentences.',
+      'Keep everything strictly consensual between the two partners and keep each prompt crisp and ready to read aloud in 1-2 sentences.',
     userPrompt:
-      'Generate exactly 20 progressively escalating Truth prompts and exactly 20 progressively escalating Dare prompts for Partner mode. ' +
-      'Index 0 must be playful/flirty warmup and index 19 must be peak heat/boldness.',
+      'Return a JSON object with two string arrays: "truths" (20 items) and "dares" (20 items) for Partner mode. ' +
+      'Escalate progressively from index 0 (flirty warmup) to index 19 (maximum heat/boldness).',
   },
   friends: {
     count: 50,
     systemInstruction:
-      'You are a high-energy party-game prompt generator for close adult friends playing Truth or Dare (up to 5 friends). ' +
-      'Generate full crazy, unhinged, hilarious, high-chaos social truths and harmless physical, acting, or phone-based dares. ' +
+      'You are a high-energy party-game prompt writer for close adult friends playing Truth or Dare (up to 5 friends). ' +
+      'Generate wild, unhinged, hilarious, high-chaos social truths and harmless physical, acting, or phone-based dares for friends. ' +
       'Escalate chaos progressively from item 1 (funny social warmup) through item 50 (peak unhinged party chaos). ' +
       'Keep every dare physically safe, non-destructive, and legal. Keep each prompt punchy and ready to read aloud in 1-2 sentences.',
     userPrompt:
-      'Generate exactly 50 progressively escalating Truth prompts and exactly 50 progressively escalating Dare prompts for Friends mode. ' +
-      'Index 0 must be a funny warmup and index 49 must be peak unhinged chaos.',
+      'Return a JSON object with two string arrays: "truths" (50 items) and "dares" (50 items) for Friends mode. ' +
+      'Escalate progressively from index 0 (funny warmup) to index 49 (peak unhinged chaos).',
   },
 };
 
@@ -45,11 +45,69 @@ const DEFAULT_MAX_GAMES = 10;
 
 function normalizePromptList(items: unknown, targetCount: number): string[] {
   if (!Array.isArray(items)) return [];
-  const cleaned = items
+  return items
     .filter((entry): entry is string => typeof entry === 'string')
     .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-  return cleaned.slice(0, targetCount);
+    .filter((entry) => entry.length > 0)
+    .slice(0, targetCount);
+}
+
+function extractTextFromResponse(response: {
+  text?: string;
+  candidates?: Array<{
+    finishReason?: string;
+    content?: { parts?: Array<{ text?: string; thought?: boolean }> };
+  }>;
+  promptFeedback?: { blockReason?: string };
+}): { rawText: string; diagnostic: string } {
+  if (typeof response.text === 'string' && response.text.trim()) {
+    return { rawText: response.text.trim(), diagnostic: 'ok' };
+  }
+
+  const candidate = response.candidates?.[0];
+  const parts = candidate?.content?.parts || [];
+  const joined = parts
+    .filter((p) => typeof p?.text === 'string' && !p.thought)
+    .map((p) => p.text as string)
+    .join('')
+    .trim();
+
+  if (joined) {
+    return { rawText: joined, diagnostic: 'ok' };
+  }
+
+  const blockReason = response.promptFeedback?.blockReason;
+  const finishReason = candidate?.finishReason;
+  const diagnostic = blockReason
+    ? `blocked:${blockReason}`
+    : finishReason
+      ? `finish:${finishReason}`
+      : 'no_parts';
+  return { rawText: '', diagnostic };
+}
+
+function parseDeckJson(rawText: string): { truths?: unknown; dares?: unknown } | null {
+  const cleaned = rawText
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+  try {
+    return JSON.parse(cleaned) as { truths?: unknown; dares?: unknown };
+  } catch {
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      try {
+        return JSON.parse(cleaned.slice(start, end + 1)) as {
+          truths?: unknown;
+          dares?: unknown;
+        };
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -89,7 +147,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // Ensure quota row exists and check current limit before invoking Gemini
   await supabaseAdmin
     .from('truth_or_dare_sessions')
     .upsert(
@@ -131,16 +188,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const ai = new GoogleGenAI({ apiKey: geminiApiKey });
   const modelName = process.env.TRUTH_OR_DARE_MODEL || 'gemini-3.5-flash-lite';
 
+  const safetySettings = [
+    {
+      category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+      threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+    {
+      category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+      threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
+    },
+  ];
+
   let truths: string[] = [];
   let dares: string[] = [];
 
   try {
-    const response = await ai.models.generateContent({
+    // Attempt 1: Structured JSON output (without rigid minItems/maxItems that can stall large decks)
+    let response = await ai.models.generateContent({
       model: modelName,
       contents: spec.userPrompt,
       config: {
         systemInstruction: spec.systemInstruction,
-        temperature: 0.95,
+        temperature: 0.9,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
         responseSchema: {
@@ -149,41 +218,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             truths: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              minItems: spec.count,
-              maxItems: spec.count,
             },
             dares: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              minItems: spec.count,
-              maxItems: spec.count,
             },
           },
           required: ['truths', 'dares'],
         },
-        safetySettings: [
-          {
-            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH,
-          },
-        ],
+        safetySettings,
       },
     });
 
-    const rawText = response.text;
+    let { rawText, diagnostic } = extractTextFromResponse(response);
+
+    // Attempt 2: JSON-mode fallback without responseSchema if Attempt 1 returned empty
+    if (!rawText) {
+      response = await ai.models.generateContent({
+        model: modelName,
+        contents: `${spec.userPrompt} Output valid JSON only with keys "truths" and "dares".`,
+        config: {
+          systemInstruction: spec.systemInstruction,
+          temperature: 0.85,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+          safetySettings,
+        },
+      });
+      const fallbackResult = extractTextFromResponse(response);
+      rawText = fallbackResult.rawText;
+      diagnostic = fallbackResult.diagnostic;
+    }
+
     if (!rawText) {
       res.status(502).json({
         error: 'EMPTY_DECK_RESPONSE',
-        message: 'AI generator returned an empty deck. Please try again.',
+        message: `AI generator returned an empty deck (${diagnostic}). Please try again.`,
       });
       return;
     }
 
-    const parsed = JSON.parse(rawText) as { truths?: unknown; dares?: unknown };
+    const parsed = parseDeckJson(rawText);
+    if (!parsed) {
+      res.status(502).json({
+        error: 'INVALID_DECK_FORMAT',
+        message: 'AI response could not be parsed as valid JSON. Please try again.',
+      });
+      return;
+    }
+
     truths = normalizePromptList(parsed.truths, spec.count);
     dares = normalizePromptList(parsed.dares, spec.count);
 
@@ -229,7 +312,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
     return;
   } else {
-    // Fallback conditional update if RPC function hasn't been deployed
     const { data: updatedRow, error: updateErr } = await supabaseAdmin
       .from('truth_or_dare_sessions')
       .update({
