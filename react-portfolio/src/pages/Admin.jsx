@@ -280,18 +280,16 @@ const Admin = () => {
                     </td>
                     <td>
                       <div className="admin-quota-cell">
-                        <span>
-                          {quota.games_played} / {quota.max_games}
-                        </span>
+                        <span>{quota.games_played} played</span>
                         {quota.games_played > 0 && (
                           <button
                             type="button"
                             className="copy-btn"
                             disabled={resettingId === row.id}
                             onClick={() => handleResetQuota(row)}
-                            title="Reset Truth or Dare game quota to 0"
+                            title="Clear user's 10-game AI memory & stats"
                           >
-                            {resettingId === row.id ? '...' : 'Reset'}
+                            {resettingId === row.id ? '...' : 'Clear'}
                           </button>
                         )}
                       </div>

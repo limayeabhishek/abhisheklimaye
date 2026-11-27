@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertCircle, Flame, Users, Heart, RotateCcw } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/useAuth';
 
 function getIntensityMeta(progressRatio, mode) {
@@ -30,14 +29,9 @@ function getIntensityMeta(progressRatio, mode) {
 }
 
 const TruthOrDare = () => {
-  const { session, user } = useAuth();
+  const { session } = useAuth();
 
-  // Quota state
-  const [gamesPlayed, setGamesPlayed] = useState(0);
-  const [maxGames, setMaxGames] = useState(10);
-  const [quotaLoading, setQuotaLoading] = useState(true);
-
-  // Session & deck state
+  // Session & deck state (unlimited plays, rolling 10-game AI context memory on server)
   const [selectedMode, setSelectedMode] = useState(null); // 'partner' | 'friends'
   const [generating, setGenerating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -48,42 +42,8 @@ const TruthOrDare = () => {
   const [dareIndex, setDareIndex] = useState(0);
   const [activeCard, setActiveCard] = useState(null); // { type: 'TRUTH' | 'DARE', text: string, turn: number }
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadQuota = async () => {
-      if (!supabase || !user?.id) {
-        setQuotaLoading(false);
-        return;
-      }
-      try {
-        const { data, error } = await supabase
-          .from('truth_or_dare_sessions')
-          .select('games_played, max_games')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (!cancelled && !error && data) {
-          setGamesPlayed(data.games_played ?? 0);
-          setMaxGames(data.max_games ?? 10);
-        }
-      } catch (err) {
-        console.error('Failed to load game quota:', err);
-      } finally {
-        if (!cancelled) setQuotaLoading(false);
-      }
-    };
-
-    loadQuota();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id]);
-
-  const remainingGames = Math.max(0, maxGames - gamesPlayed);
-
   const handleStartMode = async (mode) => {
-    if (generating || remainingGames <= 0) return;
+    if (generating) return;
     if (!session?.access_token) {
       setErrorMsg('Active session required. Please sign in again.');
       return;
@@ -105,8 +65,6 @@ const TruthOrDare = () => {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        if (typeof data.gamesPlayed === 'number') setGamesPlayed(data.gamesPlayed);
-        if (typeof data.maxGames === 'number') setMaxGames(data.maxGames);
         setErrorMsg(data.message || 'Unable to start Truth or Dare session.');
         return;
       }
@@ -119,9 +77,6 @@ const TruthOrDare = () => {
       setTruthIndex(0);
       setDareIndex(0);
       setActiveCard(null);
-
-      if (typeof data.gamesPlayed === 'number') setGamesPlayed(data.gamesPlayed);
-      if (typeof data.maxGames === 'number') setMaxGames(data.maxGames);
     } catch (err) {
       setErrorMsg(err?.message || 'Network error while generating prompt deck.');
     } finally {
@@ -167,7 +122,7 @@ const TruthOrDare = () => {
     setActiveCard(null);
   };
 
-  const handleResetToLobby = () => {
+  const handleTerminateGame = () => {
     setDeck(null);
     setSelectedMode(null);
     setTruthIndex(0);
@@ -192,9 +147,7 @@ const TruthOrDare = () => {
         </div>
 
         <div className="tod-quota-pill">
-          {quotaLoading
-            ? 'Checking Quota...'
-            : `Games Remaining: ${remainingGames} / ${maxGames}`}
+          Unlimited Plays &bull; 10-Game Fresh Memory
         </div>
       </div>
 
@@ -210,23 +163,14 @@ const TruthOrDare = () => {
         <div className="tod-lobby">
           <h2 className="tod-lobby-heading">Who are we playing with today?</h2>
 
-          {!quotaLoading && remainingGames <= 0 && (
-            <div className="auth-alert auth-alert-error" role="status">
-              <AlertCircle size={16} strokeWidth={1.75} />
-              <span>
-                You have reached the 10-game limit ({gamesPlayed} / {maxGames} games played). Contact the administrator to reset your quota.
-              </span>
-            </div>
-          )}
-
           {generating ? (
             <div className="tod-loading-card">
               <div className="osint-loading-spinner" />
               <div className="osint-loading-text">
-                GENERATING ESCALATED DECK // STAND BY...
+                GENERATING FRESH ESCALATED DECK // STAND BY...
               </div>
               <div className="osint-loading-subtext">
-                Batching the entire progressive deck in one single call so turns stay instant.
+                Batching new non-repeating prompts using your 10-game context memory.
               </div>
             </div>
           ) : (
@@ -234,7 +178,6 @@ const TruthOrDare = () => {
               <button
                 type="button"
                 className="tod-mode-card"
-                disabled={quotaLoading || remainingGames <= 0}
                 onClick={() => handleStartMode('partner')}
               >
                 <div className="tod-mode-top">
@@ -253,7 +196,6 @@ const TruthOrDare = () => {
               <button
                 type="button"
                 className="tod-mode-card"
-                disabled={quotaLoading || remainingGames <= 0}
                 onClick={() => handleStartMode('friends')}
               >
                 <div className="tod-mode-top">
@@ -276,7 +218,6 @@ const TruthOrDare = () => {
       {/* SCREEN 2: ACTIVE GAMEPLAY */}
       {deck && (
         <div className="tod-arena">
-          {/* Top Linear Progress Bar */}
           <div className="tod-progress-header">
             <div className="tod-progress-meta">
               <span className="tod-turn-label">
@@ -294,7 +235,6 @@ const TruthOrDare = () => {
             </div>
           </div>
 
-          {/* Central Prompt Display Card */}
           <div className="tod-prompt-card">
             {isDeckFinished ? (
               <div className="tod-complete-state">
@@ -303,16 +243,14 @@ const TruthOrDare = () => {
                   All {totalCards} escalated prompts in {selectedMode === 'partner' ? 'Partner' : 'Friends'} mode have been played.
                 </p>
                 <div className="tod-complete-actions">
-                  {remainingGames > 0 && (
-                    <button
-                      type="button"
-                      className="btn"
-                      onClick={handleResetToLobby}
-                    >
-                      <RotateCcw size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
-                      Play Again ({remainingGames} left)
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleTerminateGame}
+                  >
+                    <RotateCcw size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+                    Play New Game
+                  </button>
                   <Link to="/#gamezone" className="btn">
                     Back to Gamezone
                   </Link>
@@ -356,7 +294,6 @@ const TruthOrDare = () => {
             )}
           </div>
 
-          {/* Primary TRUTH / DARE Action Buttons */}
           {!isDeckFinished && (
             <div className="tod-action-buttons">
               <button
@@ -382,7 +319,7 @@ const TruthOrDare = () => {
             <button
               type="button"
               className="ultron-action-btn"
-              onClick={handleResetToLobby}
+              onClick={handleTerminateGame}
             >
               End Current Game
             </button>

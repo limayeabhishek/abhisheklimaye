@@ -9,6 +9,8 @@ import {
 
 type GameMode = 'partner' | 'friends';
 
+const MEMORY_WINDOW_GAMES = 10;
+
 const MODE_CONFIG: Record<
   GameMode,
   {
@@ -40,8 +42,6 @@ const MODE_CONFIG: Record<
       'Escalate progressively from index 0 (funny warmup) to index 49 (peak unhinged chaos).',
   },
 };
-
-const DEFAULT_MAX_GAMES = 10;
 
 function normalizePromptList(items: unknown, targetCount: number): string[] {
   if (!Array.isArray(items)) return [];
@@ -147,41 +147,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  await supabaseAdmin
-    .from('truth_or_dare_sessions')
-    .upsert(
-      {
-        user_id: userId,
-        games_played: 0,
-        max_games: DEFAULT_MAX_GAMES,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id', ignoreDuplicates: true }
-    );
+  // Load rolling 10-game AI context memory so each new game avoids repeating recent prompts
+  let recentPrompts: string[] = [];
+  let memoryCount = 0;
+  try {
+    const { data: memoryRows } = await supabaseAdmin
+      .from('truth_or_dare_memory')
+      .select('id, prompts')
+      .eq('user_id', userId)
+      .eq('mode', mode)
+      .order('created_at', { ascending: false })
+      .limit(MEMORY_WINDOW_GAMES);
 
-  const { data: quotaRow, error: quotaReadError } = await supabaseAdmin
-    .from('truth_or_dare_sessions')
-    .select('games_played, max_games')
-    .eq('user_id', userId)
-    .single();
-
-  if (quotaReadError || !quotaRow) {
-    res.status(500).json({
-      error: 'QUOTA_CHECK_FAILED',
-      message: quotaReadError?.message || 'Unable to verify game quota.',
-    });
-    return;
-  }
-
-  if (quotaRow.games_played >= quotaRow.max_games) {
-    res.status(403).json({
-      error: 'QUOTA_EXCEEDED',
-      message: `Game limit reached (${quotaRow.games_played}/${quotaRow.max_games} games played).`,
-      gamesPlayed: quotaRow.games_played,
-      maxGames: quotaRow.max_games,
-      remainingGames: 0,
-    });
-    return;
+    if (Array.isArray(memoryRows)) {
+      memoryCount = memoryRows.length;
+      const seen = new Set<string>();
+      for (const row of memoryRows) {
+        if (Array.isArray(row.prompts)) {
+          for (const p of row.prompts) {
+            if (typeof p === 'string' && p.trim() && !seen.has(p.trim())) {
+              seen.add(p.trim());
+              recentPrompts.push(p.trim());
+              if (recentPrompts.length >= 160) break;
+            }
+          }
+        }
+        if (recentPrompts.length >= 160) break;
+      }
+    }
+  } catch {
+    recentPrompts = [];
   }
 
   const spec = MODE_CONFIG[mode];
@@ -199,17 +194,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     },
   ];
 
+  const sessionSeed = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const memoryClause =
+    recentPrompts.length > 0
+      ? `\n\nIMPORTANT — Rolling 10-game memory (Session ${sessionSeed}): Generate completely NEW tasks and questions. Do NOT repeat or closely paraphrase any of these recent prompts:\n- ${recentPrompts.join('\n- ')}`
+      : `\n\nSession ${sessionSeed}: Ensure fresh, original, non-cliche prompts.`;
+
   let truths: string[] = [];
   let dares: string[] = [];
 
   try {
-    // Attempt 1: Structured JSON output (without rigid minItems/maxItems that can stall large decks)
     let response = await ai.models.generateContent({
       model: modelName,
-      contents: spec.userPrompt,
+      contents: `${spec.userPrompt}${memoryClause}`,
       config: {
         systemInstruction: spec.systemInstruction,
-        temperature: 0.9,
+        temperature: 0.95,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
         responseSchema: {
@@ -232,14 +232,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     let { rawText, diagnostic } = extractTextFromResponse(response);
 
-    // Attempt 2: JSON-mode fallback without responseSchema if Attempt 1 returned empty
     if (!rawText) {
       response = await ai.models.generateContent({
         model: modelName,
-        contents: `${spec.userPrompt} Output valid JSON only with keys "truths" and "dares".`,
+        contents: `${spec.userPrompt}${memoryClause}\nOutput valid JSON only with keys "truths" and "dares".`,
         config: {
           systemInstruction: spec.systemInstruction,
-          temperature: 0.85,
+          temperature: 0.9,
           maxOutputTokens: 8192,
           responseMimeType: 'application/json',
           safetySettings,
@@ -290,60 +289,63 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // Increment games_played only after deck generation succeeds
-  let nextPlayed = quotaRow.games_played + 1;
-  let maxGames = quotaRow.max_games;
-
-  const { data: rpcRows, error: rpcError } = await supabaseAdmin.rpc(
-    'increment_truth_or_dare_quota',
-    { p_user_id: userId }
-  );
-
-  if (!rpcError && Array.isArray(rpcRows) && rpcRows.length > 0) {
-    nextPlayed = rpcRows[0].games_played;
-    maxGames = rpcRows[0].max_games;
-  } else if (!rpcError && Array.isArray(rpcRows) && rpcRows.length === 0) {
-    res.status(403).json({
-      error: 'QUOTA_EXCEEDED',
-      message: `Game limit reached (${quotaRow.max_games}/${quotaRow.max_games} games played).`,
-      gamesPlayed: quotaRow.max_games,
-      maxGames: quotaRow.max_games,
-      remainingGames: 0,
+  // Save this game's prompts into rolling 10-game memory & prune older entries beyond 10
+  try {
+    const combinedPrompts = [...truths, ...dares].slice(0, 100);
+    await supabaseAdmin.from('truth_or_dare_memory').insert({
+      user_id: userId,
+      mode,
+      prompts: combinedPrompts,
     });
-    return;
-  } else {
-    const { data: updatedRow, error: updateErr } = await supabaseAdmin
-      .from('truth_or_dare_sessions')
-      .update({
-        games_played: quotaRow.games_played + 1,
-        updated_at: new Date().toISOString(),
-      })
+
+    const { data: allRows } = await supabaseAdmin
+      .from('truth_or_dare_memory')
+      .select('id')
       .eq('user_id', userId)
-      .lt('games_played', quotaRow.max_games)
-      .select('games_played, max_games')
+      .order('created_at', { ascending: false });
+
+    if (Array.isArray(allRows) && allRows.length > MEMORY_WINDOW_GAMES) {
+      const idsToDelete = allRows.slice(MEMORY_WINDOW_GAMES).map((r) => r.id);
+      if (idsToDelete.length > 0) {
+        await supabaseAdmin
+          .from('truth_or_dare_memory')
+          .delete()
+          .in('id', idsToDelete);
+      }
+    }
+  } catch (memErr) {
+    console.error('Rolling memory update warning:', memErr);
+  }
+
+  // Also track unlimited total games played for Admin analytics (no cap)
+  let totalGamesPlayed = 1;
+  try {
+    const { data: existingSession } = await supabaseAdmin
+      .from('truth_or_dare_sessions')
+      .select('games_played')
+      .eq('user_id', userId)
       .maybeSingle();
 
-    if (updateErr || !updatedRow) {
-      res.status(403).json({
-        error: 'QUOTA_EXCEEDED',
-        message: 'Game quota reached or could not be updated.',
-        gamesPlayed: quotaRow.games_played,
-        maxGames: quotaRow.max_games,
-        remainingGames: 0,
-      });
-      return;
-    }
-
-    nextPlayed = updatedRow.games_played;
-    maxGames = updatedRow.max_games;
+    totalGamesPlayed = (existingSession?.games_played ?? 0) + 1;
+    await supabaseAdmin.from('truth_or_dare_sessions').upsert(
+      {
+        user_id: userId,
+        games_played: totalGamesPlayed,
+        max_games: MEMORY_WINDOW_GAMES,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+  } catch {
+    // Non-fatal analytics update
   }
 
   res.status(200).json({
     mode,
     truths,
     dares,
-    gamesPlayed: nextPlayed,
-    maxGames,
-    remainingGames: Math.max(0, maxGames - nextPlayed),
+    gamesPlayed: totalGamesPlayed,
+    memoryGamesUsed: Math.min(MEMORY_WINDOW_GAMES, memoryCount),
+    memoryWindow: MEMORY_WINDOW_GAMES,
   });
 }

@@ -41,20 +41,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (action === 'reset-quota') {
-    const { data: existingQuota } = await supabaseAdmin
-      .from('truth_or_dare_sessions')
-      .select('max_games')
-      .eq('user_id', userId)
-      .maybeSingle();
+    await supabaseAdmin
+      .from('truth_or_dare_memory')
+      .delete()
+      .eq('user_id', userId);
 
-    const maxGames = existingQuota?.max_games ?? 10;
     const { data: quotaRow, error: quotaErr } = await supabaseAdmin
       .from('truth_or_dare_sessions')
       .upsert(
         {
           user_id: userId,
           games_played: 0,
-          max_games: maxGames,
+          max_games: 10,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'user_id' }
@@ -65,7 +63,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (quotaErr || !quotaRow) {
       res.status(400).json({
         error: 'QUOTA_RESET_FAILED',
-        message: quotaErr?.message || 'Unable to reset user game quota.',
+        message: quotaErr?.message || 'Unable to reset user game memory.',
       });
       return;
     }
