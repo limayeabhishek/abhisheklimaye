@@ -42,8 +42,24 @@ function getAccessToken(req: VercelRequest): string | null {
   return null;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function getAllowedOrigin(originHeader: string | undefined): string | null {
+  if (!originHeader) return null;
+  if (originHeader === 'https://abhisheklimaye.vercel.app') return originHeader;
+  if (/^https?:\/\/localhost(:\d+)?$/i.test(originHeader)) return originHeader;
+  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/i.test(originHeader)) return originHeader;
+  return null;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const allowedOrigin = getAllowedOrigin(
+    typeof req.headers.origin === 'string' ? req.headers.origin : undefined
+  );
+  if (allowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
 
@@ -109,8 +125,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const userId = typeof payload.userId === 'string' ? payload.userId.trim() : '';
   const action = payload.action === 'disable' || payload.action === 'enable' ? payload.action : null;
 
-  if (!userId || !action) {
-    res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'userId and action (disable | enable) are required.' });
+  if (!userId || !UUID_REGEX.test(userId) || !action) {
+    res.status(400).json({ error: 'INVALID_PAYLOAD', message: 'Valid userId UUID and action (disable | enable) are required.' });
     return;
   }
 

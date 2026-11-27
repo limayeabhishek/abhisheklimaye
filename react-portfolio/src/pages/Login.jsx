@@ -7,7 +7,12 @@ import { useAuth, DISABLED_ACCOUNT_MESSAGE } from '../context/useAuth';
 function getSafeRedirect(rawRedirect) {
   if (typeof rawRedirect !== 'string') return '/';
   const trimmed = rawRedirect.trim();
-  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+  if (
+    trimmed.startsWith('/') &&
+    !trimmed.startsWith('//') &&
+    !trimmed.startsWith('/\\') &&
+    !/[\r\n\t]/.test(trimmed)
+  ) {
     return trimmed;
   }
   return '/';

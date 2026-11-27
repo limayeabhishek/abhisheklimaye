@@ -622,7 +622,7 @@ const OsintPlatform = () => {
                   <div className="osint-finding-top">
                     <div className="osint-finding-source-block">
                       <span className="osint-finding-source">{finding.source || finding.platform}</span>
-                      {finding.sourceUrl && (
+                      {finding.sourceUrl && /^https?:\/\//i.test(finding.sourceUrl) && (
                         <a 
                           href={finding.sourceUrl} 
                           target="_blank" 
